@@ -49,6 +49,8 @@ class Cloneable : public virtual Module {
         "and not the constructor?");
     for (const auto& parameter : parameters_) {
       auto& tensor = *parameter;
+      // yf225 TODO: fix the `.to` usage here for undefined tensors!
+      // yf225 TODO: add test for this!
       auto data = device && tensor.device() != *device ?
           tensor.to(*device) : autograd::Variable(tensor).clone();
       copy->parameters_[parameter.key()].set_data(data);
@@ -61,6 +63,8 @@ class Cloneable : public virtual Module {
         "and not the constructor?");
     for (const auto& buffer : buffers_) {
       auto& tensor = *buffer;
+      // yf225 TODO: fix the `.to` usage here for undefined tensors!
+      // yf225 TODO: add test for this!
       auto data = device && tensor.device() != *device ?
           tensor.to(*device) : autograd::Variable(tensor).clone();
       copy->buffers_[buffer.key()].set_data(data);

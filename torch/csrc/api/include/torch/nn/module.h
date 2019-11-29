@@ -648,16 +648,12 @@ void Module::to_impl(Ts&&... ts) {
     child.value()->to(ts...);
   }
   // Then move every parameter to the new dtype/device.
-  for (auto& parameter : parameters_) {
-    if (parameter->defined()) {
-      parameter->set_data(autograd::Variable(*parameter).to(ts...));
-    }
+  for (auto& parameter : parameters()) {
+    parameter->set_data(autograd::Variable(*parameter).to(ts...));
   }
   // Then move every buffer to the new dtype/device.
-  for (auto& buffer : buffers_) {
-    if (buffer->defined()) {
-      buffer->set_data(autograd::Variable(*buffer).to(ts...));
-    }
+  for (auto& buffer : buffers()) {
+    buffer->set_data(autograd::Variable(*buffer).to(ts...));
   }
 }
 
