@@ -244,7 +244,6 @@ struct CAFFE2_API IValue final {
   c10::List<int64_t> toIntList() &&;
   c10::List<int64_t> toIntList() const &;
   c10::ArrayRef<int64_t> toIntListRef() const;
-  c10::optional<c10::ArrayRef<int64_t>> toOptionalIntListRef() const;
 
   // ConstantString
   IValue(c10::intrusive_ptr<ivalue::ConstantString> v);
