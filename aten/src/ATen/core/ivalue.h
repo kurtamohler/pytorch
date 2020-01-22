@@ -398,6 +398,7 @@ struct CAFFE2_API IValue final {
     return static_cast<at::MemoryFormat>(toInt());
   }
 
+
   // QScheme
   IValue(at::QScheme qscheme)
   : tag(Tag::Int), is_intrusive_ptr(false) {
@@ -436,6 +437,14 @@ struct CAFFE2_API IValue final {
   // ToOptional: convert a IValue to the Optional obj that accepts both T and None
   template<typename T>
   optional<T> toOptional();
+
+  // IValue(ReductionDim d)
+  // : IValue(static_cast<std::underlying_type<ReductionDim>::type>(d)) {}
+  // c10::ReductionDim toReductionDim() const {
+  //   return
+  // }
+
+  c10::ReductionDim toReductionDim();
 
   // this is a shallow comparison of two IValues to test the object identity
   bool isSameIdentity(const IValue& rhs) const;

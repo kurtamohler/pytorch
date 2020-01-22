@@ -770,6 +770,17 @@ inline optional<T> IValue::toOptional() {
   return this->to<T>();
 }
 
+inline c10::ReductionDim IValue::toReductionDim() {
+  if (this->isNone()) {
+    return c10::ReductionDim();
+  } else if (this->isIntList()) {
+    // return c10::ReductionDim(this->toIntList());
+    return c10::ReductionDim(this->toIntListRef());
+  } else {
+    return c10::ReductionDim(this->toInt());
+  }
+}
+
 inline bool IValue::isSameIdentity(const IValue& rhs) const {
   // We choose to not use memcmp for payload check due to potential random padding characters on union type
 

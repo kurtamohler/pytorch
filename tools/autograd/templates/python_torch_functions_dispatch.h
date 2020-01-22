@@ -22,6 +22,7 @@ using at::TensorList;
 using at::IntArrayRef;
 using at::Generator;
 using at::Storage;
+using c10::ReductionDim;
 
 ${py_method_dispatch}
 

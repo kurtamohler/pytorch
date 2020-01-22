@@ -5,6 +5,7 @@
 #include <c10/core/QScheme.h>
 #include <c10/macros/Macros.h>
 #include <c10/core/TensorOptions.h>
+#include <c10/core/ReductionDim.h>
 #include <c10/util/intrusive_ptr.h>
 #include <ATen/core/DeprecatedTypeProperties.h>
 #include <ATen/core/dispatch/Dispatcher.h>

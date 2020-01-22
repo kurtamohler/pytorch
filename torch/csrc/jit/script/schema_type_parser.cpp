@@ -17,6 +17,7 @@ using c10::FutureType;
 using c10::GeneratorType;
 using c10::IntType;
 using c10::ListType;
+using c10::ReductionDimType;
 using c10::NoneType;
 using c10::NumberType;
 using c10::OptionalType;
@@ -34,6 +35,7 @@ TypeAndAlias SchemaTypeParser::parseBaseType() {
   static std::unordered_map<std::string, TypePtr> type_map = {
       {"Generator", GeneratorType::get()},
       {"Dimname", StringType::get()},
+      // {"ReductionDim", ReductionDimType::get()},
       {"ScalarType", IntType::get()},
       {"Layout", IntType::get()},
       {"MemoryFormat", IntType::get()},
@@ -209,6 +211,12 @@ std::pair<TypePtr, c10::optional<AliasInfo>> SchemaTypeParser::parseType() {
     L.expect(')');
     alias_info = parseAliasAnnotation();
     value = DictType::create(key_type, value_type);
+  } else if (L.cur().kind == TK_IDENT && L.cur().text() == "ReductionDim") {
+    // TODO: I have no idea what to put in here yet
+    auto value_alias = parseBaseType();
+    L.next();
+    value = ReductionDimType::create();
+
   } else if (
       complete_tensor_types && L.cur().kind == TK_IDENT &&
       parseTensorDType(L.cur().text())) {

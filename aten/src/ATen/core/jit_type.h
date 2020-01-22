@@ -8,6 +8,7 @@
 #include <c10/util/TypeList.h>
 
 #include <c10/util/Optional.h>
+#include <c10/core/ReductionDim.h>
 
 #include <iostream>
 #include <memory>
@@ -43,6 +44,7 @@ using OptNameList = c10::optional<std::vector<std::string>>;
   _(StringType)             \
   _(GeneratorType)          \
   _(BoolType)               \
+  _(ReductionDimType)       \
   _(OptionalType)           \
   _(VarType)                \
   _(DeviceObjType)          \
@@ -227,6 +229,53 @@ struct SingleElementType : public Type {
 
  private:
   TypePtr elem;
+};
+
+struct ReductionDimType;
+using ReductionDimTypePtr = std::shared_ptr<ReductionDimType>;
+struct CAFFE2_API ReductionDimType
+    : public SingleElementType<TypeKind::ReductionDimType, ReductionDimType> {
+  static ReductionDimTypePtr create(TypePtr element) {
+    // Optional is a union of [None, T], so Optional[[Optional[T]]] ->
+    // Optional[T]
+    if (auto opt_ptr = element->cast<ReductionDimType>()) {
+      return opt_ptr;
+    }
+    return ReductionDimTypePtr(
+        new ReductionDimType(std::move(element))); // NOLINT(modernize-make-shared)
+  }
+
+  std::string str() const override {
+    std::stringstream ss;
+    ss << getElementType()->str() << "?";
+    return ss.str();
+  }
+  std::string python_str() const override {
+    std::stringstream ss;
+    ss << "Optional[" << getElementType()->python_str() << "]";
+    return ss.str();
+  }
+
+  TypePtr createWithContained(
+      std::vector<TypePtr> contained_types) const override {
+    AT_ASSERT(contained_types.size() == 1);
+    return create(contained_types[0]);
+  }
+
+  bool isSubtypeOfExt(const TypePtr rhs, std::ostream* why_not) const override {
+    if (Type::isSubtypeOfExt(rhs, why_not)) {
+      return true;
+    }
+    if (auto rhs_ = rhs->cast<ReductionDimType>()) {
+      return getElementType()->isSubtypeOfExt(rhs_->getElementType(), why_not);
+    }
+    return false;
+  }
+  // common cast Optional[Tensor] for undefined tensor type
+  static ReductionDimTypePtr ofTensor();
+
+ private:
+  ReductionDimType(TypePtr elem) : SingleElementType(elem) {}
 };
 
 struct OptionalType;

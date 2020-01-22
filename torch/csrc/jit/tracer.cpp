@@ -504,6 +504,10 @@ void addInputs(
     n->addInput(none);
   }
 }
+
+void addInputs(Node* n, const char* name, c10::ReductionDim value) {
+  TORCH_CHECK(false, "NYI: Reduction dimensions are not yet supported with the tracer");
+}
 #ifdef BUILD_NAMEDTENSOR
 void addInputs(
     Node* n,

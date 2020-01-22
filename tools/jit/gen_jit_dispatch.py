@@ -66,6 +66,7 @@ TYPE_MAP = {
     'bool': 'bool',
     'bool?': 'bool?',
     'Generator': 'Generator?',
+    'ReductionDim': 'ReductionDim'
 }
 
 
@@ -122,6 +123,7 @@ FROM_IVALUE = {
     'std::array<bool,2>': 'as_bool_array<2>({}.toBoolList())',
     'std::array<bool,3>': 'as_bool_array<3>({}.toBoolList())',
     'std::array<bool,4>': 'as_bool_array<4>({}.toBoolList())',
+    'ReductionDim': '{}.toReductionDim()',
 }
 
 

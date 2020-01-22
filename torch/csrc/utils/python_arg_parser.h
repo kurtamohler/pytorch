@@ -142,6 +142,7 @@ struct PythonArgs {
   inline c10::optional<at::Scalar> scalarOptional(int i);
   inline c10::optional<int64_t> toInt64Optional(int i);
   inline c10::optional<bool> toBoolOptional(int i);
+  inline c10::ReductionDim toReductionDim(int i);
   inline const THPLayout& layout(int i);
   inline const THPLayout& layoutWithDefault(int i, const THPLayout& default_layout);
   inline at::Device device(int i);
@@ -299,6 +300,12 @@ inline std::array<at::Tensor, N> PythonArgs::tensorlist_n(int i) {
 
 inline std::vector<int64_t> PythonArgs::intlist(int i) {
   return intlistWithDefault(i, signature.params[i].default_intlist);
+}
+
+
+inline c10::ReductionDim PythonArgs::toReductionDim(int i) {
+  // TODO: need to do actual parsing here
+  return c10::ReductionDim();
 }
 
 inline std::vector<int64_t> PythonArgs::intlistWithDefault(int i, std::vector<int64_t> default_intlist) {

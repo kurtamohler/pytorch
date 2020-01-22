@@ -2514,6 +2514,10 @@
   variants: function, method
   supports_named_tensor: True
 
+- func: sum_reduction_dim(Tensor self, ReductionDim dim, bool keepdim=False, *, ScalarType? dtype=None) -> Tensor
+  variants: function, method
+  supports_named_tensor: True
+
 - func: sum.dim_IntList(Tensor self, int[1] dim, bool keepdim=False, *, ScalarType? dtype=None) -> Tensor
   variants: function, method
   supports_named_tensor: True

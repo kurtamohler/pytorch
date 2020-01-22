@@ -10,6 +10,7 @@
 #include <ATen/native/TensorIterator.h>
 #include <ATen/NamedTensorUtils.h>
 #include <ATen/core/EnableNamedTensor.h>
+#include <ATen/core/ReductionDim.h>
 
 #include <algorithm>
 #include <functional>
@@ -168,6 +169,47 @@ static TensorIterator make_reduction(
   return TensorIterator::reduce_op(viewed_result1, viewed_result2, self.to(dtype));
 }
 
+static TensorIterator make_reduction(
+    const char* name, Tensor& result1, Tensor& result2, const Tensor& self,
+    ReductionDim dim, bool keepdim, ScalarType dtype)
+{
+  // check that result type and dtype match if provided
+  for (const Tensor *t: {&result1, &result2}) {
+    const Tensor& result = *t;
+    TORCH_CHECK(
+        !result.defined() || result.type().scalarType() == dtype,
+        name, ": provided dtype must match dtype of result. Got ",
+        toString(result.type().scalarType()),
+        " and ",
+        toString(dtype),
+        ".");
+  }
+
+  int64_t ndim = self.dim();
+  // DimMask mask = make_dim_mask(dim, ndim);
+  DimMask mask = dim.make_dim_mask(ndim);
+  allocate_reduction_result(result1, self, mask, keepdim, dtype);
+  auto viewed_result1 = review_reduce_result(result1, ndim, mask, keepdim);
+
+  allocate_reduction_result(result2, self, mask, keepdim, dtype);
+  auto viewed_result2 = review_reduce_result(result2, ndim, mask, keepdim);
+
+// #ifdef BUILD_NAMEDTENSOR
+//   namedinference::propagate_names_for_reduction(result1, self, dim.get_optional(), keepdim);
+//   namedinference::propagate_names_for_reduction(result2, self, dim.get_optional(), keepdim);
+// #endif
+
+  // special case for type promotion in mixed precision, improves computational
+  // efficiency.
+  // We don't generalize this to common mismatched input/output types to avoid cross
+  // product of templated kernel launches.
+  if (self.type().scalarType() == dtype ||
+      (self.is_cuda() && self.type().scalarType() == kHalf && dtype == kFloat)) {
+    return TensorIterator::reduce_op(viewed_result1, viewed_result2, self);
+  }
+  return TensorIterator::reduce_op(viewed_result1, viewed_result2, self.to(dtype));
+}
+
 Tensor cumsum(const Tensor& self, int64_t dim, c10::optional<ScalarType> dtype) {
   auto result = [&]() {
 #ifdef BUILD_NAMEDTENSOR
@@ -282,6 +324,16 @@ Tensor sum(const Tensor& self, IntArrayRef dim, bool keepdim, c10::optional<Scal
   Tensor result;
   return at::native::sum_out(result, self, dim, keepdim, dtype);
 }
+
+Tensor sum_reduction_dim(const Tensor& self, c10::ReductionDim dim, bool keepdim, c10::optional<ScalarType> dtype) {
+  Tensor result;
+  return at::native::sum_out(result, self, dim.vec(), keepdim, dtype);
+}
+
+// Tensor sum_dummy(const Tensor& self, Tensor& dummy, c10::ReductionDim dim, bool keepdim, c10::optional<ScalarType> dtype) {
+//   return self;
+// }
+
 #ifdef BUILD_NAMEDTENSOR
 Tensor sum(const Tensor& self, DimnameList dim, bool keepdim, c10::optional<ScalarType> dtype) {
   return at::sum(self, dimnames_to_positions(self, dim), keepdim, dtype);

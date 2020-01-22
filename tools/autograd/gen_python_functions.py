@@ -195,7 +195,8 @@ SUPPORTED_RETURN_TYPES = {
     'Scalar', 'bool', 'int64_t', 'void*', 'void',
     'QScheme', 'double',
     'IntArrayRef',
-    'ScalarType'
+    'ScalarType',
+    'ReductionDim'
 }
 
 TENSOR_OPTIONS = CodeTemplate("""\
@@ -288,6 +289,7 @@ def get_py_torch_functions(declarations):
 
 def gen_py_torch_functions(out, declarations, template_path):
     PY_TORCH_FUNCTIONS_CPP = CodeTemplate.from_file(template_path + '/python_torch_functions.cpp')
+    print(template_path + '/python_torch_functions_dispatch.h')
     PY_TORCH_DISPATCH_H = CodeTemplate.from_file(template_path + '/python_torch_functions_dispatch.h')
 
     py_torch_functions = get_py_torch_functions(declarations)
@@ -341,6 +343,7 @@ def create_python_bindings(python_functions, has_self, is_module=False):
         'c10::optional<int64_t>': 'toInt64Optional',
         'c10::optional<bool>': 'toBoolOptional',
         'IntArrayRef': 'intlist',
+        'ReductionDim': 'toReductionDim',
         'int64_t': 'toInt64',
         'bool': 'toBool',
         'double': 'toDouble',
@@ -349,6 +352,7 @@ def create_python_bindings(python_functions, has_self, is_module=False):
 
     unpack_with_default_methods = {
         'IntArrayRef': 'setDefaultIntlist',
+        'ReductionDim': 'setDefaultReductionDim',
         'Scalar': 'scalarWithDefault',
         'int64_t': 'toInt64WithDefault',
         'bool': 'setDefaultBool',

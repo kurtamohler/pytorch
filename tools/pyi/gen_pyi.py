@@ -133,6 +133,7 @@ def type_to_python(typename, size=None):
         'Dimname': 'Union[str, None]',
         'DimnameList': 'List[Union[str, None]]',
         'QScheme': '_qscheme',
+        'ReductionDim': 'ReductionDim'
     }[typename]
 
     return typename
