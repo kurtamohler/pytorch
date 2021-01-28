@@ -2918,6 +2918,18 @@ class TestRandomTensorCreation(TestCase):
         else:
             helper(self, device, dtype, lambda x: x, lambda t: t, lambda mean: mean)
 
+    # Ensure that normal raises appropriate error when `std` <= 0
+    def test_normal_std_error(self, device):
+        a = torch.tensor(0, dtype=torch.float32, device=device)
+        std = torch.tensor(-1, dtype=torch.float32, device=device)
+
+        for input in [0, a]:
+            with self.assertRaisesRegex(RuntimeError, r'normal_ expects std > 0.0'):
+                torch.normal(input, -1, (10,))
+
+            with self.assertRaisesRegex(RuntimeError, r'normal expects all elements of std > 0.0'):
+                torch.normal(input, std)
+
     @dtypes(torch.float, torch.double, torch.half)
     @dtypesIfCUDA(torch.float, torch.double, torch.half, torch.bfloat16)
     def test_uniform_from_to(self, device, dtype):
