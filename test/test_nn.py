@@ -14564,6 +14564,48 @@ class TestNNDeviceType(NNTestCase):
             F.max_pool3d(x, kernel_size=(1, 1, 1)).sum().backward()
             self.assertTrue(torch.allclose(x.grad, torch.ones_like(x.grad)))
 
+    # Check that clip_grad_norm_ raises an error if the norm of a gradient
+    # is non-finite
+    def test_clip_grad_norm_error_if_nonfinite(self, device):
+        test_cases = [
+            # scalar, is_grad_nonfinite
+            (inf, True),
+            (-inf, True),
+            (nan, True),
+            (2e22, False),
+            (-2e22, False),
+        ]
+        norm_types = [
+            inf,
+            3.5,
+            2,
+            1,
+            0.1,
+            0,
+            -0.1,
+            -1,
+            -2,
+            -3.5,
+        ]
+        for (scalar, is_grad_nonfinite), norm_type, error_if_nonfinite in product(test_cases, norm_types, [False, True]):
+            # Override 0-norm case, because it will never be non-finite
+            if norm_type == 0:
+                is_grad_nonfinite = False
+            error_msg = f'The norm of order {float(norm_type)} for a gradient'
+            msg = (
+                f'scalar: {scalar}, is_grad_nonfinite: {is_grad_nonfinite}, '
+                f'norm_type: {norm_type}, error_if_nonfinite: {error_if_nonfinite}')
+            a = torch.ones(10, dtype=torch.float64, device=device, requires_grad=True)
+            a.mul(scalar).sum().backward()
+            if is_grad_nonfinite and error_if_nonfinite:
+                grad_before = a.grad.clone()
+                with self.assertRaisesRegex(RuntimeError, error_msg):
+                    clip_grad_norm_(a, 1, norm_type=norm_type)
+                # Grad should not change if error is thrown
+                self.assertEqual(grad_before, a.grad, msg=msg)
+            else:
+                clip_grad_norm_(a, 1, norm_type=norm_type, error_if_nonfinite=error_if_nonfinite)
+
     @onlyCUDA
     @deviceCountAtLeast(2)
     def test_clip_grad_norm_multi_device(self, devices):

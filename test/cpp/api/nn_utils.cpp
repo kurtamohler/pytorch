@@ -6,6 +6,8 @@
 
 #include <algorithm>
 #include <random>
+#include <string>
+#include <sstream>
 
 using namespace torch::nn;
 
@@ -101,6 +103,64 @@ TEST_F(NNUtilsTest, ClipGradNorm) {
     utils::clip_grad_norm_(p1, max_norm, norm_type);
     utils::clip_grad_norm_({p2}, max_norm, norm_type);
     ASSERT_TRUE(torch::allclose(p1.grad(), p2.grad()));
+  }
+}
+
+// Check that clip_grad_norm_ raises an error if the norm of a gradient
+// is non-finite
+TEST_F(NNUtilsTest, ClipGradNormErrorIfNonfinite) {
+  std::vector<std::tuple<double, bool>> test_cases({
+    // scalar, is_grad_nonfinite
+    std::make_tuple(std::numeric_limits<double>::infinity(), true),
+    std::make_tuple(-std::numeric_limits<double>::infinity(), true),
+    std::make_tuple(std::numeric_limits<double>::quiet_NaN(), true),
+    std::make_tuple(2e22, false),
+    std::make_tuple(-2e22, false)
+  });
+  std::vector<double> norm_types = {
+      std::numeric_limits<double>::infinity(),
+      3.5,
+      2,
+      1,
+      0.1,
+      0,
+      -0.1,
+      -1,
+      -2,
+      -3.5
+  };
+  for (auto device_type : {torch::kCPU, torch::kCUDA}) {
+    if (device_type == torch::kCUDA && !torch::cuda::is_available()) {
+      continue;
+    }
+    for (auto norm_type : norm_types) {
+      for (auto test_case : test_cases) {
+        auto scalar = std::get<0>(test_case);
+        // Override 0-norm case, because it will never be non-finite
+        auto is_grad_nonfinite = (norm_type == 0) ? false : std::get<1>(test_case);
+
+        for (auto error_if_nonfinite : {false, true}) {
+          std::stringstream ss;
+          ss << "device: " << device_type
+             << ", norm_type: " << norm_type
+             << ", error_if_nonfinite: " << error_if_nonfinite
+             << ", is_grad_nonfinite: " << is_grad_nonfinite
+             << ", scalar: " << scalar;
+          std::string msg = ss.str();
+          auto a = torch::ones(10,
+            torch::TensorOptions().dtype(torch::kDouble).device(device_type).requires_grad(true));
+          a.mul(scalar).sum().backward();
+          if (is_grad_nonfinite && error_if_nonfinite) {
+            auto grad_before = a.grad().clone();
+            EXPECT_THROW(utils::clip_grad_norm_(a, 1., norm_type), std::exception) << msg;
+            // Grad should not change if error is thrown
+            ASSERT_TRUE(torch::allclose(grad_before, a.grad(), 1.0, 0.0, /*equal_nan*/ true)) << msg;
+          } else {
+            EXPECT_NO_THROW(utils::clip_grad_norm_(a, 1., norm_type, error_if_nonfinite)) << msg;
+          }
+        }
+      }
+    }
   }
 }
 
