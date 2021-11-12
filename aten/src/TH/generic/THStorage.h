@@ -2,7 +2,6 @@
 #define TH_GENERIC_FILE "TH/generic/THStorage.h"
 #else
 
-#include <c10/core/Allocator.h>
 #include <c10/core/StorageImpl.h>
 
 /* on pourrait avoir un liste chainee
@@ -27,28 +26,8 @@
 // alias these to the single THStorage type.
 #define THByteStorage THStorage
 
-/* slow access -- checks everything */
-TH_API void THStorage_(set)(THStorage*, ptrdiff_t, scalar_t);
-TH_API scalar_t THStorage_(get)(const THStorage*, ptrdiff_t);
-
-TH_API THStorage* THStorage_(new)(void);
-TH_API THStorage* THStorage_(newWithSize)(ptrdiff_t size);
-TH_API THStorage* THStorage_(newWithMapping)(const char *filename, ptrdiff_t size, int flags);
-
-TH_API THStorage* THStorage_(newWithAllocator)(ptrdiff_t size,
-                                               c10::Allocator* allocator);
-TH_API THStorage* THStorage_(newWithDataAndAllocator)(
-    at::DataPtr&& data, ptrdiff_t size, at::Allocator* allocator);
-
 /* should not differ with API */
 TH_API void THStorage_(setFlag)(THStorage *storage, const char flag);
 TH_API void THStorage_(clearFlag)(THStorage *storage, const char flag);
-TH_API void THStorage_(retain)(THStorage *storage);
-TH_API void THStorage_(swap)(THStorage *storage1, THStorage *storage2);
-
-/* might differ with other API (like CUDA) */
-TH_API void THStorage_(free)(THStorage *storage);
-TH_API void THStorage_(resizeBytes)(THStorage* storage, ptrdiff_t size_bytes);
-TH_API void THStorage_(fill)(THStorage *storage, scalar_t value);
 
 #endif

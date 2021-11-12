@@ -63,9 +63,9 @@ of freeing it.  If that function holds on to a pointer to the object, it
 will `retain` it itself.
 
 ```
-  THLongStorage *inferred_size = THLongStorage_newInferSize(size, numel);
+  THByteStorage *inferred_size = THByteStorage_newInferSize(size, numel);
   THTensor_(setStorage)(self, tensor->storage, tensor->storageOffset, inferred_size, NULL);
-  THLongStorage_free(inferred_size);
+  c10::raw::intrusive_ptr::decref(inferred_size);
 ```
 
 Sometimes, you have a tensor in hand which you'd like to use directly, but

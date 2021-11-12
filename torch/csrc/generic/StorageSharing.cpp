@@ -46,8 +46,13 @@ static THWStorage* THPStorage_(newFilenameStorage)(ptrdiff_t size)
 {
   int flags = at::ALLOCATOR_MAPPED_SHAREDMEM | at::ALLOCATOR_MAPPED_EXCLUSIVE;
   std::string handle = at::NewProcessWideShmHandle();
-  return THWStorage_(newWithDataAndAllocator)(
-      THManagedMapAllocator::makeDataPtr("", handle.c_str(), flags, size * sizeof(scalar_t)), size, /* allocator */ nullptr);
+  return c10::make_intrusive<at::StorageImpl>(
+    c10::StorageImpl::use_byte_size_t(),
+    size,
+    THManagedMapAllocator::makeDataPtr("", handle.c_str(), flags, size),
+    /*allocator=*/nullptr,
+    /*resizable=*/false)
+    .release();
 }
 
 static PyObject * THPStorage_(pyNewFilenameStorage)(PyObject *_unused, PyObject *args)
@@ -82,7 +87,7 @@ static PyObject * THPStorage_(shareFilename)(PyObject *_self, PyObject *noargs)
     at::Storage _self_aten = torch::createStorage(_self);
     storage_copy(new_storage_aten, _self_aten);
 
-    THWStorage_(swap)(storage, new_storage);
+    std::swap(*storage, *new_storage);
     ctx = THManagedMapAllocator::fromDataPtr(storage->data_ptr());
     AT_ASSERT(ctx);
   }
@@ -121,10 +126,13 @@ static PyObject * THPStorage_(newSharedFilename)(PyObject *_unused, PyObject *ar
   int flags = at::ALLOCATOR_MAPPED_SHAREDMEM |
               at::ALLOCATOR_MAPPED_NOCREATE;
   return THPStorage_(New)(
-          THWStorage_(newWithDataAndAllocator)(
-            THManagedMapAllocator::makeDataPtr(manager_handle, object_handle, flags, size * sizeof(scalar_t)),
-            size,
-            /* allocator */ nullptr));
+    c10::make_intrusive<at::StorageImpl>(
+      c10::StorageImpl::use_byte_size_t(),
+      size,
+      THManagedMapAllocator::makeDataPtr(manager_handle, object_handle, flags, size),
+      /*allocator=*/nullptr,
+      /*resizable=*/false)
+      .release());
   END_HANDLE_TH_ERRORS
 }
 
@@ -136,7 +144,13 @@ static THWStorage* THPStorage_(newFdStorage)(ptrdiff_t size)
               at::ALLOCATOR_MAPPED_UNLINK;
   std::string handle = at::NewProcessWideShmHandle();
   auto sptr = at::MapAllocator::makeDataPtr(handle.c_str(), flags, size * sizeof(scalar_t), nullptr);
-  return THWStorage_(newWithDataAndAllocator)(std::move(sptr), size, /* allocator */ nullptr);
+  return c10::make_intrusive<at::StorageImpl>(
+    c10::StorageImpl::use_byte_size_t(),
+    size,
+    std::move(sptr),
+    /*allocator=*/nullptr,
+    /*resizable=*/false)
+    .release();
 }
 
 static PyObject * THPStorage_(pyNewFdStorage)(PyObject *_unused, PyObject *args)
@@ -169,7 +183,7 @@ static PyObject * THPStorage_(shareFd)(PyObject *_self, PyObject *noargs)
     at::Storage _self_aten = torch::createStorage(_self);
     storage_copy(new_storage_aten, _self_aten);
 
-    THWStorage_(swap)(storage, new_storage);
+    std::swap(*storage, *new_storage);
     ctx = at::MapAllocator::fromDataPtr(storage->data_ptr());
     AT_ASSERT(ctx);
   }
@@ -212,10 +226,13 @@ static PyObject * THPStorage_(newSharedFd)(PyObject *_unused, PyObject *args)
               at::ALLOCATOR_MAPPED_KEEPFD |
               at::ALLOCATOR_MAPPED_FROMFD;
   return THPStorage_(New)(
-          THWStorage_(newWithDataAndAllocator)(
-            // TODO: Maybe we should read out the scalar_t size and use it for size
-            at::MapAllocator::makeDataPtr(at::WITH_FD, "", fd, flags, size * sizeof(scalar_t), nullptr),
-            size, /* allocator */ nullptr));
+    c10::make_intrusive<at::StorageImpl>(
+      c10::StorageImpl::use_byte_size_t(),
+      size,
+      at::MapAllocator::makeDataPtr(at::WITH_FD, "", fd, flags, size, nullptr),
+      /*allocator=*/nullptr,
+      /*resizable=*/false)
+      .release());
   END_HANDLE_TH_ERRORS
 }
 
@@ -471,10 +488,15 @@ static PyObject * THPStorage_(newSharedCuda)(PyObject *_unused, PyObject *args)
       },
       at::Device(at::DeviceType::CUDA, cur_device));
 
-  THWStoragePtr base(THWStorage_(newWithDataAndAllocator)(
-      LIBRARY_STATE
+  THWStoragePtr base(
+    c10::make_intrusive<at::StorageImpl>(
+      c10::StorageImpl::use_byte_size_t(),
+      storage_size,
       std::move(data_ptr),
-      storage_size, /* allocator */ nullptr));
+      /*allocator=*/nullptr,
+      /*resizable=*/false)
+      .release());
+
   base->set_resizable(false);
   base->set_received_cuda(true);
 

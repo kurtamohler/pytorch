@@ -24,9 +24,11 @@
 #include <torch/csrc/generic/Storage.cpp>
 #include <TH/THGenerateByteType.h>
 
+#include <c10/util/intrusive_ptr.h>
+
 template<>
 void THPPointer<THStorage>::free() {
   if (ptr) {
-    THStorage_free(ptr);
+    c10::raw::intrusive_ptr::decref(ptr);
   }
 }

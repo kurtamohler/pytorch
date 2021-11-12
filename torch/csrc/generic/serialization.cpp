@@ -4,6 +4,8 @@
 
 #ifdef THC_GENERIC_FILE
 #include <c10/cuda/CUDAGuard.h>
+#else
+#include <c10/core/CPUAllocator.h>
 #endif
 
 // save_save is necessary since the old eager format saved storages as
@@ -113,7 +115,16 @@ THWStorage * THPStorage_(readFileRaw)(io file, THWStorage *_storage, uint64_t el
   }
   THWStoragePtr storage;
   if (_storage == nullptr) {
-    storage = THWStorage_(newWithSize)(LIBRARY_STATE nbytes);
+    storage = c10::make_intrusive<at::StorageImpl>(
+      c10::StorageImpl::use_byte_size_t(),
+      nbytes,
+#if defined(THC_GENERIC_FILE)
+      c10::cuda::CUDACachingAllocator::get(),
+#else
+      c10::GetDefaultCPUAllocator(),
+#endif
+      /*resizable=*/true)
+      .release();
   } else {
     int64_t _storage_nbytes = _storage->nbytes();
     THPUtils_assert(
