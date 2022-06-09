@@ -7,6 +7,7 @@ from contextlib import closing
 import torch.distributed as dist
 import torch.distributed.launch as launch
 from torch.distributed.elastic.utils import get_socket_with_port
+import subprocess
 
 if not dist.is_available():
     print("Distributed not available, skipping tests", file=sys.stderr)
@@ -51,6 +52,36 @@ class TestDistributedLaunch(TestCase):
         ]
         launch.main(args)
 
+    def test_omp_threads_warning(self):
+        script_path = path("bin/test_script.py")
+
+        processes = []
+
+        processes.append(subprocess.Popen([
+            'torchrun',
+            '--nnodes', '2',
+            '--nproc_per_node', '2',
+            '--node_rank', '0',
+            script_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE))
+
+        processes.append(subprocess.Popen([
+            'torchrun',
+            '--nnodes', '2',
+            '--nproc_per_node', '2',
+            '--node_rank', '1',
+            script_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE))
+
+        for rank, process in enumerate(processes):
+            process_out, process_err = process.communicate()
+
+            if rank == 0:
+                self.assertIn('Setting OMP_NUM_THREADS', str(process_err))
+            else:
+                self.assertNotIn('Setting OMP_NUM_THREADS', str(process_err))
 
 if __name__ == "__main__":
     run_tests()
