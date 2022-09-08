@@ -108,8 +108,8 @@ __global__ void roll_cuda_kernel(
 }
 
 // Roll a tensor along a dimension
-Tensor roll_cuda(const Tensor& self, IntArrayRef shifts, IntArrayRef dims) {
-  if (dims.size() != 1 || shifts.size() != 1) {
+Tensor roll_cuda(const Tensor& self, IntArrayRef shifts, OptionalIntArrayRef dims) {
+  if (!dims.has_value() || dims.value().size() != 1 || shifts.size() != 1) {
     return roll_common(self, shifts, dims);
   }
 
@@ -122,7 +122,7 @@ Tensor roll_cuda(const Tensor& self, IntArrayRef shifts, IntArrayRef dims) {
     return out_tensor;
   }
   const int64_t N = in_tensor.numel();
-  const int64_t dim = dims[0];
+  const int64_t dim = dims.value()[0];
   const int64_t size = in_tensor.size(dim);
   int64_t start = (size - shifts[0]) % size;
   // Behavior of % is different in C++ vs Python for negative numbers. This

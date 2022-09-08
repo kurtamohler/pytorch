@@ -907,7 +907,7 @@ std::vector<Shape> compute_shape_grid_sampler_2d_backward(
 
 std::vector<Shape> compute_shape_flip(
     const at::Tensor& self,
-    at::IntArrayRef dims) {
+    at::OptionalIntArrayRef dims) {
   return {Shape(self.scalar_type(), self.sizes().vec())};
 }
 

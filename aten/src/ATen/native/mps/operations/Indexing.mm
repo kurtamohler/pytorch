@@ -160,7 +160,7 @@ void index_kernel_mps(TensorIteratorBase& iter, IntArrayRef index_size, IntArray
   }
 }
 
-Tensor flip_mps(const Tensor& self, IntArrayRef dims) {
+Tensor flip_mps(const Tensor& self, OptionalIntArrayRef dims) {
   using namespace mps;
 
   Tensor result = at::native::empty_mps(
@@ -183,7 +183,7 @@ Tensor flip_mps(const Tensor& self, IntArrayRef dims) {
   }
 
   // Nothing to do, we return fast
-  if (dims.size() == 0 || self.numel() <=1) {
+  if (!dims.has_value() || dims.value().size() == 0 || self.numel() <=1) {
     result.copy_(self);
     return result;
   }

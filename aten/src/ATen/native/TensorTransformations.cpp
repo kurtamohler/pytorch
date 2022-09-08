@@ -15,7 +15,7 @@
 namespace at {
 namespace native {
 
-Tensor flip(const Tensor& self, IntArrayRef dims) {
+Tensor flip(const Tensor& self, OptionalIntArrayRef dims) {
   const int64_t total_dims = self.dim();
   // It wraps the dims and checks that there are no repeated dims
   auto flip_dims_b = at::dim_list_to_bitset(dims, total_dims);
@@ -81,15 +81,15 @@ Tensor flip(const Tensor& self, IntArrayRef dims) {
   return out_tensor;
 }
 
-Tensor roll_cpu(const Tensor& self, IntArrayRef shifts, IntArrayRef dims) {
-  if (dims.size() != 1 || shifts.size() != 1) {
+Tensor roll_cpu(const Tensor& self, IntArrayRef shifts, OptionalIntArrayRef dims) {
+  if (!dims.has_value() || dims.value().size() != 1 || shifts.size() != 1) {
     return roll_common(self, shifts, dims);
   }
   // avoid a div zero error below.
   if (self.numel() == 0) {
     return self.clone(at::MemoryFormat::Preserve);
   }
-  int64_t dim = dims[0];
+  int64_t dim = dims.value()[0];
   int64_t size = self.size(dim);
   int64_t start = (size - shifts[0]) % size;
   // Behavior of % is different in C++ vs Python for negative numbers. This

@@ -111,7 +111,7 @@ TORCH_API void propagate_names_except(
 TORCH_API void propagate_names_for_reduction(
     const Tensor& result,
     const Tensor& src,
-    IntArrayRef excluded_idxs,
+    OptionalIntArrayRef excluded_idxs,
     bool keepdim);
 
 TORCH_API void propagate_names_for_expand(

@@ -647,13 +647,18 @@ Tensor mean_backward(
   return sum_backward(grad, shape, opt_dim, keepdim) / n;
 }
 
-std::vector<int64_t> reverse_list(const IntArrayRef list) {
-  auto result = std::vector<int64_t>();
-  result.reserve(list.size());
-  for (auto iter = list.rbegin(); iter != list.rend(); iter++) {
-    result.push_back(*iter);
+std::vector<int64_t> reverse_list(const at::OptionalIntArrayRef opt_list) {
+  if (!opt_list.has_value()) {
+    return std::vector<int64_t>();
+  } else {
+    IntArrayRef list = opt_list.value();
+    auto result = std::vector<int64_t>();
+    result.reserve(list.size());
+    for (auto iter = list.rbegin(); iter != list.rend(); iter++) {
+      result.push_back(*iter);
+    }
+    return result;
   }
-  return result;
 }
 
 Tensor reverse_dim(const Tensor& t, int64_t dim) {
@@ -771,7 +776,7 @@ Tensor logsumexp_backward(
     Tensor grad,
     const Tensor& self,
     Tensor result,
-    IntArrayRef dim,
+    at::OptionalIntArrayRef dim,
     bool keepdim) {
   if (!keepdim && self.dim() != 0) {
     grad = unsqueeze_multiple(grad, dim, self.sizes().size());
@@ -6410,7 +6415,7 @@ Tensor lu_factor_ex_jvp(
 Tensor logsumexp_jvp(
     const Tensor& self_p,
     const Tensor& self_t,
-    IntArrayRef dim,
+    OptionalIntArrayRef dim,
     bool keepdim) {
   // NB: for simplicitly, we recompute some values that can be reused from
   // forward

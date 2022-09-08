@@ -503,7 +503,7 @@ at::Tensor LazyNativeFunctions::linalg_pinv(
 // back to the inputs.
 at::Tensor& LazyNativeFunctions::logsumexp_out(
     const at::Tensor& self,
-    at::IntArrayRef dim,
+    at::OptionalIntArrayRef dim,
     bool keepdim,
     at::Tensor& out) {
   auto self_wrapped = at::functionalization::impl::to_functional_tensor(self);

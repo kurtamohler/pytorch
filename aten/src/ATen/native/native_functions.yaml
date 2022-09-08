@@ -3169,13 +3169,13 @@
 
 - func: logcumsumexp.dimname_out(Tensor self, Dimname dim, *, Tensor(a!) out) -> Tensor(a!)
 
-- func: logsumexp(Tensor self, int[1] dim, bool keepdim=False) -> Tensor
+- func: logsumexp(Tensor self, int[1]? dim, bool keepdim=False) -> Tensor
   device_check: NoCheck   # TensorIterator
   variants: function, method
   dispatch:
     CompositeExplicitAutograd: logsumexp
 
-- func: logsumexp.out(Tensor self, int[1] dim, bool keepdim=False, *, Tensor(a!) out) -> Tensor(a!)
+- func: logsumexp.out(Tensor self, int[1]? dim, bool keepdim=False, *, Tensor(a!) out) -> Tensor(a!)
   device_check: NoCheck   # TensorIterator
   dispatch:
     # calls squeeze
@@ -5228,7 +5228,7 @@
   variants: function
   tags: dynamic_output_shape
 
-- func: flip(Tensor self, int[] dims) -> Tensor
+- func: flip(Tensor self, int[]? dims) -> Tensor
   variants: function, method
   dispatch:
     CPU, QuantizedCPU, CUDA, QuantizedCUDA: flip
@@ -5241,7 +5241,7 @@
 - func: flipud(Tensor self) -> Tensor
   variants: function, method
 
-- func: roll(Tensor self, int[1] shifts, int[1] dims=[]) -> Tensor
+- func: roll(Tensor self, int[1] shifts, int[1]? dims=None) -> Tensor
   variants: function, method
   dispatch:
     CPU: roll_cpu
@@ -11803,11 +11803,11 @@
 - func: special_polygamma.out(int n, Tensor self, *, Tensor(a!) out) -> Tensor(a!)
   python_module: special
 
-- func: special_logsumexp(Tensor self, int[1] dim, bool keepdim=False) -> Tensor
+- func: special_logsumexp(Tensor self, int[1]? dim, bool keepdim=False) -> Tensor
   python_module: special
   variants: function
 
-- func: special_logsumexp.out(Tensor self, int[1] dim, bool keepdim=False, *, Tensor(a!) out) -> Tensor(a!)
+- func: special_logsumexp.out(Tensor self, int[1]? dim, bool keepdim=False, *, Tensor(a!) out) -> Tensor(a!)
   python_module: special
 
 - func: special_expit(Tensor self) -> Tensor

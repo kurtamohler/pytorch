@@ -201,16 +201,16 @@ void propagate_names_except(const Tensor& result, const Tensor& src, IntArrayRef
   propagate_names(result, outnames);
 }
 
-void propagate_names_for_reduction(const Tensor& result, const Tensor& src, IntArrayRef reduced_dims, bool keepdim) {
+void propagate_names_for_reduction(const Tensor& result, const Tensor& src, OptionalIntArrayRef reduced_dims, bool keepdim) {
   if (keepdim) {
     propagate_names(result, src);
     return;
   }
   // This actually means "full reduction"
-  if (reduced_dims.size() == 0) {
+  if (!reduced_dims.has_value() || reduced_dims.value().size() == 0) {
     return;
   }
-  propagate_names_except(result, src, reduced_dims);
+  propagate_names_except(result, src, reduced_dims.value());
 }
 
 void propagate_names(const Tensor& result, const Tensor& src) {

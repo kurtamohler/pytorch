@@ -167,7 +167,7 @@ at::Tensor nansum_backward(
     const at::Tensor& self,
     at::OptionalIntArrayRef dims,
     bool keepdim);
-std::vector<int64_t> reverse_list(const at::IntArrayRef list);
+std::vector<int64_t> reverse_list(const at::OptionalIntArrayRef opt_list);
 at::Tensor reverse_dim(const at::Tensor& t, int64_t dim);
 at::Tensor prod_safe_zeros_backward(
     const at::Tensor& grad,
@@ -202,12 +202,12 @@ at::Tensor logsumexp_backward(
     at::Tensor grad,
     const at::Tensor& self,
     at::Tensor result,
-    at::IntArrayRef dim,
+    at::OptionalIntArrayRef dim,
     bool keepdim);
 at::Tensor logsumexp_jvp(
     const at::Tensor& self_p,
     const at::Tensor& self_t,
-    IntArrayRef dim,
+    at::OptionalIntArrayRef dim,
     bool keepdim);
 at::Tensor logcumsumexp_backward(
     at::Tensor grad,

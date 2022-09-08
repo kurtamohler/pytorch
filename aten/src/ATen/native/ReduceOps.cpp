@@ -1262,7 +1262,7 @@ Tensor nanmean(
   return at::nansum(self, dim, keepdim, opt_dtype).div(factor);
 }
 
-static Tensor squeeze_multiple(const Tensor& self, IntArrayRef dims) {
+static Tensor squeeze_multiple(const Tensor& self, OptionalIntArrayRef dims) {
   int ndims = self.sizes().size();
   auto dims_to_squeeze = at::dim_list_to_bitset(dims, ndims);
   Tensor result = self;
@@ -1274,7 +1274,7 @@ static Tensor squeeze_multiple(const Tensor& self, IntArrayRef dims) {
   return result;
 }
 
-static Tensor& logsumexp_out_impl(Tensor& result, const Tensor& self, IntArrayRef dims, bool keepdim) {
+static Tensor& logsumexp_out_impl(Tensor& result, const Tensor& self, OptionalIntArrayRef dims, bool keepdim) {
   // can't take max of empty tensor
   if (self.numel() != 0) {
     auto maxes = at::amax(self, dims, true);
@@ -1289,7 +1289,7 @@ static Tensor& logsumexp_out_impl(Tensor& result, const Tensor& self, IntArrayRe
   return result;
 }
 
-Tensor& logsumexp_out(const Tensor& self, IntArrayRef dims, bool keepdim, Tensor& result) {
+Tensor& logsumexp_out(const Tensor& self, OptionalIntArrayRef dims, bool keepdim, Tensor& result) {
   TORCH_CHECK(at::isFloatingType(result.scalar_type()),
               "logsumexp(): Expected floating point type for result tensor, but got: ",
               result.scalar_type());
@@ -1307,7 +1307,7 @@ Tensor& logsumexp_out(const Tensor& self, IntArrayRef dims, bool keepdim, Tensor
   return result;
 }
 
-Tensor logsumexp(const Tensor& self, IntArrayRef dims, bool keepdim) {
+Tensor logsumexp(const Tensor& self, OptionalIntArrayRef dims, bool keepdim) {
   TensorOptions result_options;
   if (at::isIntegralType(self.scalar_type(), /*includeBool=*/true)) {
     // even for integral inputs, result is floating dtype
@@ -1329,10 +1329,10 @@ Tensor& logsumexp_out(const Tensor& self, DimnameList dims, bool keepdim, Tensor
 }
 
 // special_logsumexp, alias for logsumexp
-Tensor special_logsumexp(const Tensor& self, IntArrayRef dims, bool keepdim) {
+Tensor special_logsumexp(const Tensor& self, OptionalIntArrayRef dims, bool keepdim) {
   return self.logsumexp(dims, keepdim);
 }
-Tensor& special_logsumexp_out(const Tensor& self, IntArrayRef dims, bool keepdim, Tensor& result) {
+Tensor& special_logsumexp_out(const Tensor& self, OptionalIntArrayRef dims, bool keepdim, Tensor& result) {
   return at::logsumexp_out(result, self, dims, keepdim);
 }
 
