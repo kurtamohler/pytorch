@@ -3,6 +3,8 @@
 #include <c10/core/Allocator.h>
 #include <c10/core/SymInt.h>
 #include <c10/core/impl/PyObjectSlot.h>
+#include <c10/core/impl/cow/deleter.h>
+#include <c10/core/impl/cow/materialize.h>
 
 #include <c10/util/intrusive_ptr.h>
 
@@ -110,7 +112,9 @@ struct C10_API StorageImpl : public c10::intrusive_ptr_target {
     return resizable_;
   }
 
+  // TODO: Look at all calls to this function. Do any of them perform only a read?
   at::DataPtr& mutable_data_ptr() {
+    maybe_materialize();
     return data_ptr_;
   }
 
@@ -119,6 +123,9 @@ struct C10_API StorageImpl : public c10::intrusive_ptr_target {
   }
 
   // Returns the previous data_ptr
+  //
+  // TODO: Does this need to trigger a copy-on-write if the returned
+  // value has a copy-on-write context?
   at::DataPtr set_data_ptr(at::DataPtr&& data_ptr) {
     at::DataPtr old_data_ptr(std::move(data_ptr_));
     data_ptr_ = std::move(data_ptr);
@@ -133,7 +140,9 @@ struct C10_API StorageImpl : public c10::intrusive_ptr_target {
     return data_ptr_.get();
   }
 
+  // TODO: Look at all calls to this function. Do any of them perform only a read?
   void* mutable_data() {
+    maybe_materialize();
     return data_ptr_.mutable_get();
   }
 
@@ -212,6 +221,13 @@ struct C10_API StorageImpl : public c10::intrusive_ptr_target {
   }
 
  private:
+  /// Triggers a copy if this is a copy-on-write tensor.
+  void maybe_materialize() {
+    if (data_ptr_.get_deleter() == impl::cow::delete_context) {
+      impl::cow::materialize(*this);
+    }
+  }
+
   DataPtr data_ptr_;
   SymInt size_bytes_;
   bool size_bytes_is_heap_allocated_;

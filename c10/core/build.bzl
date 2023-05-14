@@ -64,7 +64,10 @@ def define_targets(rules):
                 "CPUAllocator.cpp",
                 "impl/alloc_cpu.cpp",
             ],
-        ),
+        ) + [
+            "impl/cow/materialize.cpp",
+            "impl/cow/materialize.h",
+        ],
         hdrs = rules.glob(
             [
                 "*.h",
