@@ -19,4 +19,7 @@ namespace c10::impl::cow {
 C10_API c10::intrusive_ptr<StorageImpl> lazy_clone_storage(
     StorageImpl& storage);
 
+// Eagerly copies a COW storage's data, turning it into a non-COW storage.
+C10_API void materialize(StorageImpl& storage);
+
 } // namespace c10::impl::cow

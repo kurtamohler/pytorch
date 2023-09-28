@@ -3369,6 +3369,7 @@ class NativeCachingAllocator : public CUDAAllocator {
 
     return {devPtr, devPtr, deleteFunc, Device(DeviceType::CUDA, device)};
   }
+
   DeleterFnPtr raw_deleter() const override {
     if (forceUncachedAllocator()) {
       return &uncached_delete;
@@ -3534,6 +3535,12 @@ class NativeCachingAllocator : public CUDAAllocator {
   }
   std::string name() override {
     return "native";
+  }
+
+ private:
+  void copy_data(void* dest, const void* src, std::size_t count) const final {
+    C10_CUDA_CHECK(
+        cudaMemcpy(dest, src, count, cudaMemcpyKind::cudaMemcpyDeviceToDevice));
   }
 };
 

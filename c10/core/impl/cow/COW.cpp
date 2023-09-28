@@ -14,10 +14,9 @@ namespace c10::impl {
 namespace {
 
 // Wraps a DataPtr with a copy-on-write DataPtr.
-at::DataPtr make_data_ptr(
-    at::DataPtr const& data_ptr,
-    cow::COWDeleterContext& ctx) {
-  return at::DataPtr(data_ptr.get(), &ctx, cow::cow_deleter, data_ptr.device());
+at::DataPtr make_data_ptr(at::DataPtr const& data_ptr, cow::COWDeleterContext& ctx) {
+  return at::DataPtr(
+      data_ptr.get(), &ctx, cow::cow_deleter, data_ptr.device());
 }
 
 /// Copies a copy-on-write DataPtr.
@@ -30,8 +29,7 @@ at::DataPtr copy_data_ptr(at::DataPtr const& data_ptr) {
 
 } // namespace
 
-c10::intrusive_ptr<StorageImpl> C10_API
-cow::lazy_clone_storage(StorageImpl& storage) {
+c10::intrusive_ptr<StorageImpl> C10_API cow::lazy_clone_storage(StorageImpl& storage) {
   const at::DataPtr& data_ptr = storage.data_ptr();
 
   // There are three possible circumstances:
@@ -63,13 +61,12 @@ cow::lazy_clone_storage(StorageImpl& storage) {
 
   if (data_ptr.get() == data_ptr.get_context()) {
     // Case 1) We have a simple data pointer: wrap it.
-    std::unique_ptr<void, DeleterFnPtr> original_ctx =
-        storage.mutable_data_ptr().move_context();
+    std::unique_ptr<void, DeleterFnPtr> original_ctx = storage.mutable_data_ptr().move_context();
     TORCH_INTERNAL_ASSERT(original_ctx.get() == data_ptr.get());
 
     // Save this for the result.
-    new_data_ptr = make_data_ptr(
-        data_ptr, *new cow::COWDeleterContext(std::move(original_ctx)));
+    new_data_ptr =
+        make_data_ptr(data_ptr, *new cow::COWDeleterContext(std::move(original_ctx)));
 
     // Update this storage to the new copy on write context.
     storage.set_data_ptr_noswap(copy_data_ptr(*new_data_ptr));
@@ -91,6 +88,43 @@ cow::lazy_clone_storage(StorageImpl& storage) {
       *std::move(new_data_ptr),
       storage.allocator(),
       storage.resizable());
+}
+
+C10_API void cow::materialize(StorageImpl& storage) {
+  const at::DataPtr& data_ptr = storage.data_ptr();
+
+  auto* ctx = data_ptr.cast_context<cow::COWDeleterContext>(cow::cow_deleter);
+  TORCH_INTERNAL_ASSERT(ctx != nullptr);
+
+  // TODO: Wait, are we deleting it and then copying it???
+  auto result = ctx->decrement_refcount();
+
+  // This must be set by each branch below.
+  std::optional<DataPtr> new_data_ptr;
+
+  if (std::holds_alternative<cow::COWDeleterContext::LastReference>(result)) {
+    // This is the only reference to the data. If there were any racing writes,
+    // the context ensured they finished before giving us the result.
+    std::unique_ptr<void, DeleterFnPtr> data =
+      std::get<cow::COWDeleterContext::LastReference>(std::move(result));
+    TORCH_INTERNAL_ASSERT(data.get() == data_ptr.get());
+    new_data_ptr = DataPtr(
+      data.release(),
+      data_ptr.get(),
+      data.get_deleter(),
+      data_ptr.device());
+  } else {
+    TORCH_INTERNAL_ASSERT(
+      std::holds_alternative<cow::COWDeleterContext::NotLastReference>(result));
+    // We don't need to consume the result, it's just a shared lock ensuring
+    // that the data will remain while we copy it.
+    // TODO: Is there already a way to clone StorageImpl in c10?
+    new_data_ptr = storage.allocator()->clone(data_ptr.get(), storage.nbytes());
+  }
+
+  TORCH_INTERNAL_ASSERT(new_data_ptr.has_value());
+  DataPtr old_data_ptr = storage.set_data_ptr(*std::move(new_data_ptr));
+  old_data_ptr.release_context(); // already deleted by decrement_refcount
 }
 
 } // namespace c10::impl
