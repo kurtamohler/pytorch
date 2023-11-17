@@ -105,7 +105,8 @@ void CUDAGraph::capture_begin(MempoolId_t pool/*=0*/, cudaStreamCaptureMode capt
   offset_extragraph_ = at::empty({1}, options);
 
   seed_extragraph_.fill_(int64_t(gen->current_seed()));
-  gen->capture_prologue(seed_extragraph_.data_ptr<int64_t>(), offset_extragraph_.mutable_data_ptr<int64_t>());
+  // TODO: Check if this could be const pointer
+  gen->capture_prologue(seed_extragraph_.mutable_data_ptr<int64_t>(), offset_extragraph_.mutable_data_ptr<int64_t>());
 
   auto stream = at::cuda::getCurrentCUDAStream();
 

@@ -1033,11 +1033,11 @@ static void apply_svd(const Tensor& A,
   TORCH_CHECK(false, "svd: LAPACK library not found in compilation");
 #else
   using value_t = typename c10::scalar_value_type<scalar_t>::type;
-  const auto A_data = A.data_ptr<scalar_t>();
-  const auto U_data = compute_uv ? U.data_ptr<scalar_t>() : nullptr;
-  const auto S_data = S.data_ptr<value_t>();
-  const auto info_data = info.data_ptr<int>();
-  const auto Vh_data = compute_uv ? Vh.data_ptr<scalar_t>() : nullptr;
+  const auto A_data = A.mutable_data_ptr<scalar_t>();
+  const auto U_data = compute_uv ? U.mutable_data_ptr<scalar_t>() : nullptr;
+  const auto S_data = S.mutable_data_ptr<value_t>();
+  const auto info_data = info.mutable_data_ptr<int>();
+  const auto Vh_data = compute_uv ? Vh.mutable_data_ptr<scalar_t>() : nullptr;
   const auto A_stride = matrixStride(A);
   const auto S_stride = S.size(-1);
   const auto U_stride = compute_uv ? matrixStride(U) : 1;

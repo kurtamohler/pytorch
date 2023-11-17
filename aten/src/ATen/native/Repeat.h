@@ -38,9 +38,9 @@ static inline Tensor repeat_interleave_common(
   }
 
   Tensor result = at::empty({total}, repeats.options());
-  index_t* repeat_ptr = repeats_.data_ptr<index_t>();
-  int64_t* cumsum_ptr = cumsum.data_ptr<int64_t>();
-  index_t* result_ptr = result.data_ptr<index_t>();
+  index_t* repeat_ptr = repeats_.mutable_data_ptr<index_t>();
+  int64_t* cumsum_ptr = cumsum.mutable_data_ptr<int64_t>();
+  index_t* result_ptr = result.mutable_data_ptr<index_t>();
   compute(repeat_ptr, cumsum_ptr, result_ptr, repeats.size(0), total);
   return result;
 }

@@ -246,7 +246,7 @@ void block_sparse_triangular_solve_vec(
             block_size,
             info.descriptor(),
             B_->data_ptr<scalar_t>(),
-            X_->data_ptr<scalar_t>(),
+            X_->mutable_data_ptr<scalar_t>(),
             CUSPARSE_SOLVE_POLICY_NO_LEVEL,
             work_data.get());
 
@@ -386,7 +386,7 @@ void block_sparse_triangular_solve_mat(
             info.descriptor(),
             B_->data_ptr<scalar_t>(),
             ldb,
-            X_->data_ptr<scalar_t>(),
+            X_->mutable_data_ptr<scalar_t>(),
             ldx,
             CUSPARSE_SOLVE_POLICY_NO_LEVEL,
             work_data.get());
@@ -456,7 +456,7 @@ void block_sparse_mv(
             block_size,
             vec_->data_ptr<scalar_t>(),
             &beta_,
-            result_->data_ptr<scalar_t>());
+            result_->mutable_data_ptr<scalar_t>());
       });
   if (!result.is_same(*result_)) {
     result.copy_(*result_);
@@ -564,7 +564,7 @@ void block_sparse_mm(
             mat2_->data_ptr<scalar_t>(),
             ldb,
             &beta_,
-            result_->data_ptr<scalar_t>(),
+            result_->mutable_data_ptr<scalar_t>(),
             ldc);
       });
 
@@ -1100,14 +1100,14 @@ void add_out_sparse_csr(
   auto C_crow_indices = C.crow_indices();
   auto A_crow_indices_ptr = A_crow_indices.data_ptr<int>();
   auto B_crow_indices_ptr = B_crow_indices.data_ptr<int>();
-  auto C_crow_indices_ptr = C_crow_indices.data_ptr<int>();
+  auto C_crow_indices_ptr = C_crow_indices.mutable_data_ptr<int>();
 
   auto A_col_indices = A_32.col_indices();
   auto B_col_indices = B_32.col_indices();
   auto C_col_indices = C.col_indices();
   auto A_col_indices_ptr = A_col_indices.data_ptr<int>();
   auto B_col_indices_ptr = B_col_indices.data_ptr<int>();
-  auto C_col_indices_ptr = C_col_indices.data_ptr<int>();
+  auto C_col_indices_ptr = C_col_indices.mutable_data_ptr<int>();
 
   // Windows compilers don't support nested macros
   // so we need this lambda outside of the
@@ -1137,7 +1137,7 @@ void add_out_sparse_csr(
         auto C_values = C.values();
         auto A_values_ptr = A_values.data_ptr<scalar_t>();
         auto B_values_ptr = B_values.data_ptr<scalar_t>();
-        auto C_values_ptr = C_values.data_ptr<scalar_t>();
+        auto C_values_ptr = C_values.mutable_data_ptr<scalar_t>();
 
         auto handle = at::cuda::getCurrentCUDASparseHandle();
         TORCH_CUDASPARSE_CHECK(cusparseSetPointerMode(handle, CUSPARSE_POINTER_MODE_HOST));
@@ -1194,8 +1194,8 @@ void add_out_sparse_csr(
         C_col_indices = C.col_indices();
         C_values = C.values();
 
-        C_col_indices_ptr = C_col_indices.data_ptr<int>();
-        C_values_ptr = C_values.data_ptr<scalar_t>();
+        C_col_indices_ptr = C_col_indices.mutable_data_ptr<int>();
+        C_values_ptr = C_values.mutable_data_ptr<scalar_t>();
 
         at::cuda::sparse::csrgeam2<scalar_t>(
             handle,

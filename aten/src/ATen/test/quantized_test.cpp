@@ -60,7 +60,7 @@ TEST(TestQTensor, QuantDequantAPIs) {
   double new_scale = 2.0;
   int64_t new_zero_point = 1;
   Tensor reqr = at::quantize_per_tensor(r, new_scale, new_zero_point, kQInt8);
-  auto reqr_data = reqr.data_ptr<qint8>();
+  auto reqr_data = reqr.mutable_data_ptr<qint8>();
   for (const auto i : c10::irange(num_elements)) {
     reqr_data[i].val_ =
         native::requantize_val<quint8, qint8>(
@@ -108,7 +108,7 @@ TEST(TestQTensor, EmptyQuantized) {
   Tensor q = at::_empty_affine_quantized(
       {numel}, at::device(at::kCPU).dtype(kQUInt8), scale, zero_point);
   // Assigning to QTensor
-  auto* q_data = q.data_ptr<quint8>();
+  auto* q_data = q.mutable_data_ptr<quint8>();
   for (const auto i : c10::irange(numel)) {
     q_data[i].val_ = val;
   }
@@ -134,7 +134,7 @@ TEST(TestQTensor, EmptyPerchannelQuantized) {
       ch_axis,
       at::device(at::kCPU).dtype(kQUInt8));
   // Assigning to QTensor
-  auto* q_data = q.data_ptr<quint8>();
+  auto* q_data = q.mutable_data_ptr<quint8>();
   for (const auto i : c10::irange(numel)) {
     q_data[i].val_ = val;
   }
@@ -188,7 +188,7 @@ TEST(TestQTensor, QuantizePerChannel4dChannelsLast) {
       {1, C, H, W},
       at::device(at::kCPU).dtype(kFloat).memory_format(
           at::MemoryFormat::ChannelsLast));
-  auto* tensor_data = tensor.data_ptr<float>();
+  auto* tensor_data = tensor.mutable_data_ptr<float>();
   for (int e = 0, i = 0; e < H * W; ++e) {
     for (int c = 0; c < C; ++c, ++i) {
       tensor_data[i] = e;

@@ -62,7 +62,7 @@ Tensor _to_csr_int(const Tensor& rowIndices, int64_t dim, int64_t nnz) {
   Tensor rowIndicesInt = at::empty({rowIndices.size(0)}, CUDA(kInt));
   rowIndicesInt.copy_(rowIndices);
   sparse::cuda::Xcoo2csr(
-      rowIndicesInt.data_ptr<int32_t>(), nnz, dim, csr.data_ptr<int32_t>());
+      rowIndicesInt.data_ptr<int32_t>(), nnz, dim, csr.mutable_data_ptr<int32_t>());
   return csr;
 }
 
@@ -225,7 +225,7 @@ struct CusparseMatrixMultiplyOp {
 
     out.csr_pointers_ = at::empty({out.size(0) + 1}, output_indices.options().dtype(kInt));
 
-    int* dC_csrOffsets = out.csr_pointers_.data_ptr<int>();
+    int* dC_csrOffsets = out.csr_pointers_.mutable_data_ptr<int>();
     int* dC_columns = nullptr;
     scalar_t* dC_values = nullptr;
 
@@ -344,8 +344,8 @@ struct CusparseMatrixMultiplyOp {
 
     out.csr_indices_ = at::empty({out.nnz_}, output_indices.options().dtype(kInt));
     out.csr_values_ = at::empty({out.nnz_}, output_values.options());
-    dC_columns = out.csr_indices_.data_ptr<int>();
-    dC_values = out.csr_values_.data_ptr<scalar_t>();
+    dC_columns = out.csr_indices_.mutable_data_ptr<int>();
+    dC_values = out.csr_values_.mutable_data_ptr<scalar_t>();
 
     // update matC with the new pointers
     TORCH_CUDASPARSE_CHECK(
@@ -477,7 +477,7 @@ template<> struct CusparseMatrixMultiplyOp<double> {
         C.csr_pointers_,
         C.csr_indices_,
         out.description_,
-        out.csr_pointers_.data_ptr<int>(),
+        out.csr_pointers_.mutable_data_ptr<int>(),
         &out.nnz_,
         gemm2Info_,
         buffer_));
@@ -510,9 +510,9 @@ template<> struct CusparseMatrixMultiplyOp<double> {
         C.csr_pointers_,
         C.csr_indices_,
         out.description_,
-        out.csr_values_.data_ptr<double>(),
-        out.csr_pointers_.data_ptr<int>(),
-        out.csr_indices_.data_ptr<int>(),
+        out.csr_values_.mutable_data_ptr<double>(),
+        out.csr_pointers_.mutable_data_ptr<int>(),
+        out.csr_indices_.mutable_data_ptr<int>(),
         gemm2Info_,
         buffer_));
     return out;
@@ -605,7 +605,7 @@ template<> struct CusparseMatrixMultiplyOp<float> {
         C.csr_pointers_,
         C.csr_indices_,
         out.description_,
-        out.csr_pointers_.data_ptr<int>(),
+        out.csr_pointers_.mutable_data_ptr<int>(),
         &out.nnz_,
         gemm2Info_,
         buffer_));
@@ -638,9 +638,9 @@ template<> struct CusparseMatrixMultiplyOp<float> {
         C.csr_pointers_,
         C.csr_indices_,
         out.description_,
-        out.csr_values_.data_ptr<float>(),
-        out.csr_pointers_.data_ptr<int>(),
-        out.csr_indices_.data_ptr<int>(),
+        out.csr_values_.mutable_data_ptr<float>(),
+        out.csr_pointers_.mutable_data_ptr<int>(),
+        out.csr_indices_.mutable_data_ptr<int>(),
         gemm2Info_,
         buffer_));
     return out;
@@ -714,16 +714,16 @@ void sparse_sparse_matmul_cuda_kernel(
   }
 
   csrMatrixRef<scalar_t> csr_mat1(
-      mat1_indices.data_ptr<int>(),
-      mat1_indptr.data_ptr<int>(),
-      mat1_values.data_ptr<scalar_t>(),
+      mat1_indices.mutable_data_ptr<int>(),
+      mat1_indptr.mutable_data_ptr<int>(),
+      mat1_values.mutable_data_ptr<scalar_t>(),
       (int)mat1._nnz(),
       {(int)mat1.size(0), (int)mat1.size(1)});
 
   csrMatrixRef<scalar_t> csr_mat2(
-      mat2_indices.data_ptr<int>(),
-      mat2_indptr.data_ptr<int>(),
-      mat2_values.data_ptr<scalar_t>(),
+      mat2_indices.mutable_data_ptr<int>(),
+      mat2_indptr.mutable_data_ptr<int>(),
+      mat2_values.mutable_data_ptr<scalar_t>(),
       (int)mat2._nnz(),
       {(int)mat2.size(0), (int)mat2.size(1)});
 

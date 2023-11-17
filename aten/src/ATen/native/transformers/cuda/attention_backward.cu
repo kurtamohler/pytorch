@@ -251,8 +251,8 @@ _efficient_attention_backward(
           *philox_offset.data_ptr<int64_t>());
     } else { // dropout + capture
       rng_engine_inputs = at::PhiloxCudaState(
-          philox_seed.data_ptr<int64_t>(),
-          philox_offset.data_ptr<int64_t>(),
+          philox_seed.mutable_data_ptr<int64_t>(),
+          philox_offset.mutable_data_ptr<int64_t>(),
           0);
     }
   }

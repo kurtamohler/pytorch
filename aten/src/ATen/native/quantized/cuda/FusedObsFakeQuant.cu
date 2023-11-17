@@ -142,15 +142,15 @@ void _calculate_moving_average(
 
   at::Tensor x_min, x_max;
 
-  int64_t* observer_on_data = observer_on.data_ptr<int64_t>();
-  float* running_min_data = running_min.data_ptr<float>();
-  float* running_max_data = running_max.data_ptr<float>();
+  const int64_t* observer_on_data = observer_on.data_ptr<int64_t>();
+  float* running_min_data = running_min.mutable_data_ptr<float>();
+  float* running_max_data = running_max.mutable_data_ptr<float>();
   cudaStream_t cuda_stream = at::cuda::getCurrentCUDAStream();
 
   if (per_row_fq) {
     std::tie(x_min, x_max) = at::_aminmax(x, 1);
-    float* x_min_data = x_min.data_ptr<float>();
-    float* x_max_data = x_max.data_ptr<float>();
+    const float* x_min_data = x_min.data_ptr<float>();
+    const float* x_max_data = x_max.data_ptr<float>();
     int num_threads = std::min(size, (int64_t)512);
     const uint64_t num_blocks = ceil_div<uint64_t>(size, num_threads);
 
@@ -166,8 +166,8 @@ void _calculate_moving_average(
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else {
     std::tie(x_min, x_max) = at::_aminmax(x);
-    float* x_min_data = x_min.data_ptr<float>();
-    float* x_max_data = x_max.data_ptr<float>();
+    const float* x_min_data = x_min.data_ptr<float>();
+    const float* x_max_data = x_max.data_ptr<float>();
     // Moving Average Min/Max observer for activations
     MovingAverageMinMax<<<1, 1, 0, cuda_stream>>>(
         observer_on_data,
@@ -197,10 +197,10 @@ void _calc_moving_avg_qparams_helper(
   device_guard.set_index(x.get_device());
 
   cudaStream_t cuda_stream = at::cuda::getCurrentCUDAStream();
-  int64_t* fake_quant_on_data = fake_quant_on.data_ptr<int64_t>();
+  const int64_t* fake_quant_on_data = fake_quant_on.data_ptr<int64_t>();
   if (per_row_fq) {
-    float* running_min_data = running_min.data_ptr<float>();
-    float* running_max_data = running_max.data_ptr<float>();
+    const float* running_min_data = running_min.data_ptr<float>();
+    const float* running_max_data = running_max.data_ptr<float>();
     int num_threads = std::min(size, (int64_t)512);
     const uint64_t num_blocks = ceil_div<uint64_t>(size, num_threads);
     ChooseQuantizationParamsKernelImpl<<<num_blocks, num_threads, 0, cuda_stream>>>(
@@ -215,8 +215,8 @@ void _calc_moving_avg_qparams_helper(
         zp_ptr);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else {
-    float* running_min_data = running_min.data_ptr<float>();
-    float* running_max_data = running_max.data_ptr<float>();
+    const float* running_min_data = running_min.data_ptr<float>();
+    const float* running_max_data = running_max.data_ptr<float>();
     ChooseQuantizationParamsKernelImpl<<<1, 1, 0, cuda_stream>>>(
         fake_quant_on_data,
         running_min_data,
@@ -291,8 +291,8 @@ std::tuple<at::Tensor, at::Tensor> fused_moving_avg_obs_fake_quant_cuda(
         per_row_fq);
   }
 
-  float* scale_ptr = scale.data_ptr<float>();
-  int32_t* zp_ptr = zero_point.data_ptr<int32_t>();
+  float* scale_ptr = scale.mutable_data_ptr<float>();
+  int32_t* zp_ptr = zero_point.mutable_data_ptr<int32_t>();
 
   _calc_moving_avg_qparams_helper(
       x_contig,

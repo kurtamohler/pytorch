@@ -52,7 +52,7 @@ int64_t get_nnz(Tensor nestedtensor) {
         {batch_size + 1}, TensorOptions().device(at::kCPU).dtype(at::kInt));
 
     auto* sizes_ptr = sizes.data_ptr<int64_t>();
-    auto* cumulative_seqlen_ptr = cumulative_seqlen.data_ptr<int32_t>();
+    auto* cumulative_seqlen_ptr = cumulative_seqlen.mutable_data_ptr<int32_t>();
 
     int32_t sum = 0;
     int64_t max_seqlen = -1;
@@ -100,7 +100,7 @@ int64_t get_nnz(Tensor nestedtensor) {
       return true;
     }
 
-    int64_t* previous_tensor_stride = tensor_strides.data_ptr<int64_t>();
+    const int64_t* previous_tensor_stride = tensor_strides.data_ptr<int64_t>();
 
     // Check initially that the first tensor's strides
     // are in strictly descending order

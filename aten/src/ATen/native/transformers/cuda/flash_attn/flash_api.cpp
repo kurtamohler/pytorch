@@ -101,9 +101,9 @@ void set_params_fprop(Flash_fwd_params &params,
     params.is_bf16 = q.dtype() == at::kBFloat16;
 
     // Set the pointers and strides.
-    params.q_ptr = q.data_ptr();
-    params.k_ptr = k.data_ptr();
-    params.v_ptr = v.data_ptr();
+    params.q_ptr = q.mutable_data_ptr();
+    params.k_ptr = k.mutable_data_ptr();
+    params.v_ptr = v.mutable_data_ptr();
     // All stride are in elements, not bytes.
     params.q_row_stride = q.stride(-3);
     params.k_row_stride = k.stride(-3);
@@ -111,7 +111,7 @@ void set_params_fprop(Flash_fwd_params &params,
     params.q_head_stride = q.stride(-2);
     params.k_head_stride = k.stride(-2);
     params.v_head_stride = v.stride(-2);
-    params.o_ptr = out.data_ptr();
+    params.o_ptr = out.mutable_data_ptr();
     params.o_row_stride = out.stride(-3);
     params.o_head_stride = out.stride(-2);
 
@@ -215,12 +215,12 @@ void set_params_dgrad(Flash_bwd_params &params,
                      window_size_right);
 
     // Set the pointers and strides.
-    params.do_ptr = dout.data_ptr();
+    params.do_ptr = dout.mutable_data_ptr();
     params.do_row_stride = dout.stride(-3);
     params.do_head_stride = dout.stride(-2);
-    params.dq_ptr = dq.data_ptr();
-    params.dk_ptr = dk.data_ptr();
-    params.dv_ptr = dv.data_ptr();
+    params.dq_ptr = dq.mutable_data_ptr();
+    params.dk_ptr = dk.mutable_data_ptr();
+    params.dv_ptr = dv.mutable_data_ptr();
     params.dq_row_stride = dq.stride(-3);
     params.dk_row_stride = dk.stride(-3);
     params.dv_row_stride = dv.stride(-3);
@@ -412,8 +412,8 @@ mha_fwd(const at::Tensor &q,         // batch_size x seqlen_q x num_heads x head
                      q_padded, k_padded, v_padded, out,
                      /*cu_seqlens_q_d=*/nullptr,
                      /*cu_seqlens_k_d=*/nullptr,
-                     return_softmax ? p.data_ptr() : nullptr,
-                     softmax_lse.data_ptr(),
+                     return_softmax ? p.mutable_data_ptr() : nullptr,
+                     softmax_lse.mutable_data_ptr(),
                      p_dropout,
                      softmax_scale,
                      window_size_left,
@@ -431,8 +431,8 @@ mha_fwd(const at::Tensor &q,         // batch_size x seqlen_q x num_heads x head
         if (params.num_splits > 1) {
             at::Tensor softmax_lse_accum = at::empty({params.num_splits, batch_size, num_heads, seqlen_q}, opts.dtype(at::kFloat));
             at::Tensor out_accum = at::empty({params.num_splits, batch_size, num_heads, seqlen_q, head_size_rounded}, opts.dtype(at::kFloat));
-            params.softmax_lseaccum_ptr = softmax_lse_accum.data_ptr();
-            params.oaccum_ptr = out_accum.data_ptr();
+            params.softmax_lseaccum_ptr = softmax_lse_accum.mutable_data_ptr();
+            params.oaccum_ptr = out_accum.mutable_data_ptr();
         }
         TORCH_CHECK(params.num_splits <= 128, "num_splits > 128 not supported");
     }
@@ -457,8 +457,8 @@ mha_fwd(const at::Tensor &q,         // batch_size x seqlen_q x num_heads x head
         } else {
           seed_t = at::empty({}, at::dtype(at::kLong).device(at::kCUDA));
           offset_t = at::empty({}, at::dtype(at::kLong).device(at::kCUDA));
-          params.seed = seed_t.data_ptr<int64_t>();
-          params.extragraph_offset = offset_t.data_ptr<int64_t>();
+          params.seed = seed_t.mutable_data_ptr<int64_t>();
+          params.extragraph_offset = offset_t.mutable_data_ptr<int64_t>();
         }
         params.philox_args = philox_state;
     } else {
@@ -601,10 +601,10 @@ mha_varlen_fwd(const at::Tensor &q,  // total_q x num_heads x head_size, total_q
                      num_heads, num_heads_k,
                      head_size, head_size_rounded,
                      q_padded, k_padded, v_padded, out,
-                     cu_seqlens_q.data_ptr(),
-                     cu_seqlens_k.data_ptr(),
-                     return_softmax ? p.data_ptr() : nullptr,
-                     softmax_lse.data_ptr(),
+                     cu_seqlens_q.mutable_data_ptr(),
+                     cu_seqlens_k.mutable_data_ptr(),
+                     return_softmax ? p.mutable_data_ptr() : nullptr,
+                     softmax_lse.mutable_data_ptr(),
                      p_dropout,
                      softmax_scale,
                      window_size_left,
@@ -630,8 +630,8 @@ mha_varlen_fwd(const at::Tensor &q,  // total_q x num_heads x head_size, total_q
         } else {
           seed_t = at::empty({}, at::dtype(at::kLong).device(at::kCUDA));
           offset_t = at::empty({}, at::dtype(at::kLong).device(at::kCUDA));
-          params.seed = seed_t.data_ptr<int64_t>();
-          params.extragraph_offset = offset_t.data_ptr<int64_t>();
+          params.seed = seed_t.mutable_data_ptr<int64_t>();
+          params.extragraph_offset = offset_t.mutable_data_ptr<int64_t>();
         }
         params.philox_args = philox_state;
     } else {
@@ -825,13 +825,13 @@ mha_bwd(const at::Tensor &dout,  // batch_size x seqlen_q x num_heads, x head_si
                      dout, dq, dk_expanded, dv_expanded,
                      nullptr,
                      nullptr,
-                     loop ? dq_accum.data_ptr() : nullptr,
+                     loop ? dq_accum.mutable_data_ptr() : nullptr,
                      // loop ? dk_accum.data_ptr() : nullptr,
                      // loop ? dv_accum.data_ptr() : nullptr,
                      nullptr,
                      nullptr,
-                     softmax_lse.data_ptr(),
-                     softmax_d.data_ptr(),
+                     softmax_lse.mutable_data_ptr(),
+                     softmax_d.mutable_data_ptr(),
                      p_dropout,
                      softmax_scale,
                      window_size_left,
@@ -848,7 +848,7 @@ mha_bwd(const at::Tensor &dout,  // batch_size x seqlen_q x num_heads, x head_si
             philox_args = at::PhiloxCudaState(*philox_seed.data_ptr<int64_t>(), *philox_offset.data_ptr<int64_t>());
         } else { // dropout + capture
             philox_args = at::PhiloxCudaState(
-                philox_seed.data_ptr<int64_t>(), philox_offset.data_ptr<int64_t>(), 0);
+                philox_seed.mutable_data_ptr<int64_t>(), philox_offset.mutable_data_ptr<int64_t>(), 0);
         }
     }
     params.philox_args = philox_args;
@@ -1036,13 +1036,13 @@ mha_varlen_bwd(const at::Tensor &dout,  // total_q x num_heads, x head_size
                      head_size, head_size_rounded,
                      q, k, v, out,
                      dout, dq, dk_expanded, dv_expanded,
-                     cu_seqlens_q.data_ptr(),
-                     cu_seqlens_k.data_ptr(),
-                     loop ? dq_accum.data_ptr() : nullptr,
+                     cu_seqlens_q.mutable_data_ptr(),
+                     cu_seqlens_k.mutable_data_ptr(),
+                     loop ? dq_accum.mutable_data_ptr() : nullptr,
                      nullptr,
                      nullptr,
-                     softmax_lse.data_ptr(),
-                     softmax_d.data_ptr(),
+                     softmax_lse.mutable_data_ptr(),
+                     softmax_d.mutable_data_ptr(),
                      p_dropout,
                      softmax_scale,
                      window_size_left,
@@ -1059,7 +1059,7 @@ mha_varlen_bwd(const at::Tensor &dout,  // total_q x num_heads, x head_size
             philox_args = at::PhiloxCudaState(*philox_seed.data_ptr<int64_t>(), *philox_offset.data_ptr<int64_t>());
         } else { // dropout + capture
             philox_args = at::PhiloxCudaState(
-                philox_seed.data_ptr<int64_t>(), philox_offset.data_ptr<int64_t>(), 0);
+                philox_seed.mutable_data_ptr<int64_t>(), philox_offset.mutable_data_ptr<int64_t>(), 0);
         }
     }
     params.philox_args = philox_args;
@@ -1198,7 +1198,7 @@ mha_fwd_kvcache(at::Tensor &q,                 // batch_size x seqlen_q x num_he
                      /*cu_seqlens_q_d=*/nullptr,
                      /*cu_seqlens_k_d=*/nullptr,
                      /*p_ptr=*/nullptr,
-                     softmax_lse.data_ptr(),
+                     softmax_lse.mutable_data_ptr(),
                      /*p_dropout=*/0.f,
                      softmax_scale,
                      window_size_left,
@@ -1229,8 +1229,8 @@ mha_fwd_kvcache(at::Tensor &q,                 // batch_size x seqlen_q x num_he
             v_padded = v;
         }
         params.seqlen_knew = seqlen_knew;
-        params.knew_ptr = k_padded.data_ptr();
-        params.vnew_ptr = v_padded.data_ptr();
+        params.knew_ptr = k_padded.mutable_data_ptr();
+        params.vnew_ptr = v_padded.mutable_data_ptr();
         // All stride are in elements, not bytes.
         params.knew_batch_stride = k_padded.stride(0);
         params.vnew_batch_stride = v_padded.stride(0);
@@ -1246,7 +1246,7 @@ mha_fwd_kvcache(at::Tensor &q,                 // batch_size x seqlen_q x num_he
         CHECK_DEVICE(seqlens_k);
         CHECK_CONTIGUOUS(seqlens_k);
         CHECK_SHAPE(seqlens_k, batch_size);
-        params.cu_seqlens_k = static_cast<int *>(seqlens_k.data_ptr());
+        params.cu_seqlens_k = static_cast<int *>(seqlens_k.mutable_data_ptr());
     }
     params.is_seqlens_k_cumulative = !(seqlens_k_.has_value());
 
@@ -1269,8 +1269,8 @@ mha_fwd_kvcache(at::Tensor &q,                 // batch_size x seqlen_q x num_he
         CHECK_SHAPE(rotary_sin, seqlen_ro, params.rotary_dim / 2);
         CHECK_CONTIGUOUS(rotary_sin);
         TORCH_CHECK(rotary_sin.scalar_type() == q_dtype, "rotary_cos must have the same dtype as query");
-        params.rotary_cos_ptr = rotary_cos.data_ptr();
-        params.rotary_sin_ptr = rotary_sin.data_ptr();
+        params.rotary_cos_ptr = rotary_cos.mutable_data_ptr();
+        params.rotary_sin_ptr = rotary_sin.mutable_data_ptr();
         params.is_rotary_interleaved = is_rotary_interleaved;
     } else {
         params.rotary_dim = 0;
@@ -1281,7 +1281,7 @@ mha_fwd_kvcache(at::Tensor &q,                 // batch_size x seqlen_q x num_he
         CHECK_DEVICE(cache_batch_idx);
         CHECK_CONTIGUOUS(cache_batch_idx);
         TORCH_CHECK(cache_batch_idx.scalar_type() == at::kInt, "cache_batch_idx must have dtype int32");
-        params.cache_batch_idx = reinterpret_cast<int *>(cache_batch_idx.data_ptr());
+        params.cache_batch_idx = reinterpret_cast<int *>(cache_batch_idx.mutable_data_ptr());
     }
     // This needs to match with run_mha_fwd_splitkv_dispatch
     const int block_n = head_size <= 64 ? 256 : (head_size <= 128 ? 128 : 64);
@@ -1297,8 +1297,8 @@ mha_fwd_kvcache(at::Tensor &q,                 // batch_size x seqlen_q x num_he
     if (params.num_splits > 1) {
         at::Tensor softmax_lse_accum = at::empty({params.num_splits, batch_size, num_heads, seqlen_q}, opts.dtype(at::kFloat));
         at::Tensor out_accum = at::empty({params.num_splits, batch_size, num_heads, seqlen_q, head_size_rounded}, opts.dtype(at::kFloat));
-        params.softmax_lseaccum_ptr = softmax_lse_accum.data_ptr();
-        params.oaccum_ptr = out_accum.data_ptr();
+        params.softmax_lseaccum_ptr = softmax_lse_accum.mutable_data_ptr();
+        params.oaccum_ptr = out_accum.mutable_data_ptr();
     }
 
     auto stream = at::cuda::getCurrentCUDAStream().stream();

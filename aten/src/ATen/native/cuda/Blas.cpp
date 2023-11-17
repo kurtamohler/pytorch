@@ -296,7 +296,7 @@ Tensor& addmm_out_cuda_impl(Tensor& result, const Tensor& self, const Tensor& ma
               args.matb->data_ptr<scalar_t>(),
               args.ldb,
               self.const_data_ptr<scalar_t>(),
-              args.result->data_ptr<scalar_t>(),
+              args.result->mutable_data_ptr<scalar_t>(),
               args.result_ld,
 #if defined(CUDA_VERSION) && CUDA_VERSION >= 11080
               activation_to_gemm_and_blas_arg(activation)
@@ -686,7 +686,7 @@ Tensor& _int_mm_out_cuda(const Tensor& self, const Tensor& mat2, Tensor& result)
       args.lda,
       args.matb->data_ptr<int8_t>(),
       args.ldb,
-      args.result->data_ptr<int32_t>(),
+      args.result->mutable_data_ptr<int32_t>(),
       args.result_ld);
 
   if (!result.is_same(*args.result)) {
@@ -803,11 +803,11 @@ _scaled_mm_out_cuda(const Tensor& mat1, const Tensor& mat2,
       args.matb->scalar_type(),
       bias ? bias->data_ptr(): nullptr,
       bias ? bias->scalar_type() : isFloat8Type(out_dtype_) ? at::ScalarType::Half : out_dtype_,
-      args.result->data_ptr(),
+      args.result->mutable_data_ptr(),
       scale_result ? scale_result->data_ptr() : nullptr,
       args.result_ld,
       out_dtype_,
-      amax.data_ptr(),
+      amax.mutable_data_ptr(),
       use_fast_accum);
 #else
   TORCH_CHECK(false, "_scaled_mm_out_cuda is not compiled for this platform.");

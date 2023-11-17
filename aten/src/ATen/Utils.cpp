@@ -26,7 +26,7 @@ Tensor tensor_cpu(ArrayRef<T> values, const TensorOptions& options) {
   AT_ASSERT(result.is_contiguous());
   AT_DISPATCH_ALL_TYPES_AND_COMPLEX(result.scalar_type(), "tensor_cpu", [&] {
     std::copy(
-        values.begin(), values.end(), result.template data_ptr<scalar_t>());
+        values.begin(), values.end(), result.template mutable_data_ptr<scalar_t>());
   });
   return result;
 }
@@ -43,7 +43,7 @@ Tensor tensor_complex_cpu(ArrayRef<T> values, const TensorOptions& options) {
   AT_ASSERT(result.is_contiguous());
   AT_DISPATCH_COMPLEX_TYPES(result.scalar_type(), "tensor_cpu", [&] {
     std::copy(
-        values.begin(), values.end(), result.template data_ptr<scalar_t>());
+        values.begin(), values.end(), result.template mutable_data_ptr<scalar_t>());
   });
   return result;
 }

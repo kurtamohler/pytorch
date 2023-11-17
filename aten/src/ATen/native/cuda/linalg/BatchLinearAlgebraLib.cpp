@@ -80,9 +80,9 @@ void apply_ldl_factor_cusolver(
   auto a_stride = A.dim() > 2 ? A.stride(-3) : 0;
   auto pivots_stride = pivots.dim() > 1 ? pivots.stride(-2) : 0;
 
-  auto a_data = A.data_ptr<scalar_t>();
-  auto pivots_data = pivots.data_ptr<int>();
-  auto info_data = info.data_ptr<int>();
+  auto a_data = A.mutable_data_ptr<scalar_t>();
+  auto pivots_data = pivots.mutable_data_ptr<int>();
+  auto info_data = info.mutable_data_ptr<int>();
 
   auto handle = at::cuda::getCurrentCUDASolverDnHandle();
 
@@ -136,7 +136,7 @@ void apply_ldl_solve_cusolver(
   auto pivots_stride = pivots.dim() > 1 ? pivots.stride(-2) : 0;
 
   auto a_data = A.data_ptr<scalar_t>();
-  auto b_data = B.data_ptr<scalar_t>();
+  auto b_data = B.mutable_data_ptr<scalar_t>();
 
   auto pivots_ = pivots.to(kLong);
   auto pivots_data = pivots_.data_ptr<int64_t>();
@@ -194,7 +194,7 @@ void apply_ldl_solve_cusolver(
         worksize_device,
         workdata_host_ptr,
         worksize_host,
-        info.data_ptr<int>()));
+        info.mutable_data_ptr<int>()));
   }
 
   // info from sytrs only reports if the i-th parameter is wrong
@@ -253,8 +253,8 @@ inline static void apply_svd_cusolver_gesvd(const Tensor& A, const Tensor& U, co
   const std::vector<int64_t>& batches
 ) {
   using value_t = typename c10::scalar_value_type<scalar_t>::type;
-  auto A_data = A.data_ptr<scalar_t>();
-  auto S_data = S.data_ptr<value_t>();
+  auto A_data = A.mutable_data_ptr<scalar_t>();
+  auto S_data = S.mutable_data_ptr<value_t>();
   auto A_stride = matrixStride(A);
   auto S_stride = S.size(-1);
 
@@ -284,11 +284,11 @@ inline static void apply_svd_cusolver_gesvd(const Tensor& A, const Tensor& U, co
   const auto Vh_workspace = compute_uv ?  at::empty({n, full_matrices ? n : k},
                                               A.options().memory_format(at::MemoryFormat::Contiguous)).conj()
                                        : Tensor{};
-  const auto Vh_ptr = compute_uv ? Vh_workspace.data_ptr<scalar_t>()
+  const auto Vh_ptr = compute_uv ? Vh_workspace.mutable_data_ptr<scalar_t>()
                                  : nullptr;
 
   const auto U_stride = compute_uv ? matrixStride(U) : 0;
-  const auto U_ptr = compute_uv ? U.data_ptr<scalar_t>() : nullptr;
+  const auto U_ptr = compute_uv ? U.mutable_data_ptr<scalar_t>() : nullptr;
 
   int batchsize = calculate_all_batches ? cuda_int_cast(batchCount(A), "batch size")
                                         : batches.size();
@@ -309,7 +309,7 @@ inline static void apply_svd_cusolver_gesvd(const Tensor& A, const Tensor& U, co
       reinterpret_cast<scalar_t*>(dataPtr_work.get()),
       lwork,
       reinterpret_cast<value_t*>(dataPtr_rwork.get()),
-      infos.data_ptr<int>() + i
+      infos.mutable_data_ptr<int>() + i
     );
 
     if (compute_uv) {
@@ -368,10 +368,10 @@ inline static void apply_svd_cusolver_gesvdj(const Tensor& A, const Tensor& U, c
   auto dataPtr_U = !compute_uv ? allocator.allocate(sizeof(scalar_t)* m * k) : c10::DataPtr{};
   auto dataPtr_V = !compute_uv ? allocator.allocate(sizeof(scalar_t)* n * k) : c10::DataPtr{};
 
-  auto A_data = A.data_ptr<scalar_t>();
-  auto U_data = compute_uv ? U.data_ptr<scalar_t>() : reinterpret_cast<scalar_t*>(dataPtr_U.get());
-  auto S_data = S.data_ptr<value_t>();
-  auto V_data = compute_uv ? V.data_ptr<scalar_t>() : reinterpret_cast<scalar_t*>(dataPtr_V.get());
+  auto A_data = A.mutable_data_ptr<scalar_t>();
+  auto U_data = compute_uv ? U.mutable_data_ptr<scalar_t>() : reinterpret_cast<scalar_t*>(dataPtr_U.get());
+  auto S_data = S.mutable_data_ptr<value_t>();
+  auto V_data = compute_uv ? V.mutable_data_ptr<scalar_t>() : reinterpret_cast<scalar_t*>(dataPtr_V.get());
   auto A_stride = matrixStride(A);
   auto U_stride = compute_uv ? matrixStride(U) : 0;
   auto S_stride = S.size(-1);
@@ -413,7 +413,7 @@ inline static void apply_svd_cusolver_gesvdj(const Tensor& A, const Tensor& U, c
       ldv,
       reinterpret_cast<scalar_t*>(dataPtr.get()),
       lwork,
-      infos.data_ptr<int>() + i,
+      infos.mutable_data_ptr<int>() + i,
       gesvdj_params
     );
 
@@ -454,10 +454,10 @@ inline static void apply_svd_cusolver_gesvdjBatched(const Tensor& A, const Tenso
   auto dataPtr_U = !compute_uv ? allocator.allocate(sizeof(scalar_t) * batchsize * m * ldu) : c10::DataPtr{};
   auto dataPtr_V = !compute_uv ? allocator.allocate(sizeof(scalar_t) * batchsize * n * ldv) : c10::DataPtr{};
 
-  auto A_data = A.data_ptr<scalar_t>();
-  auto U_data = compute_uv ? U.data_ptr<scalar_t>() : reinterpret_cast<scalar_t*>(dataPtr_U.get());
-  auto S_data = S.data_ptr<value_t>();
-  auto V_data = compute_uv ? V.data_ptr<scalar_t>() : reinterpret_cast<scalar_t*>(dataPtr_V.get());
+  auto A_data = A.mutable_data_ptr<scalar_t>();
+  auto U_data = compute_uv ? U.mutable_data_ptr<scalar_t>() : reinterpret_cast<scalar_t*>(dataPtr_U.get());
+  auto S_data = S.mutable_data_ptr<value_t>();
+  auto V_data = compute_uv ? V.mutable_data_ptr<scalar_t>() : reinterpret_cast<scalar_t*>(dataPtr_V.get());
 
   TORCH_INTERNAL_ASSERT(m <= 32 && n <= 32, "gesvdjBatched requires both matrix dimensions not greater than 32, but got "
                         "m = ", m, " n = ", n);
@@ -475,7 +475,7 @@ inline static void apply_svd_cusolver_gesvdjBatched(const Tensor& A, const Tenso
   auto jobz = compute_uv ? CUSOLVER_EIG_MODE_VECTOR : CUSOLVER_EIG_MODE_NOVECTOR;
   at::cuda::solver::gesvdjBatched<scalar_t>(
     handle, jobz, m, n, A_data, lda, S_data, U_data, ldu, V_data, ldv,
-    infos.data_ptr<int>(), gesvdj_params, batchsize
+    infos.mutable_data_ptr<int>(), gesvdj_params, batchsize
   );
 
   TORCH_CUSOLVER_CHECK(cusolverDnDestroyGesvdjInfo(gesvdj_params));
@@ -546,10 +546,10 @@ inline static void apply_svd_cusolver_gesvdaStridedBatched(const Tensor& A, cons
   auto dataPtr_U = !compute_uv ? allocator.allocate(sizeof(scalar_t) * batchsize * m * n) : c10::DataPtr{};
   auto dataPtr_V = !compute_uv ? allocator.allocate(sizeof(scalar_t) * batchsize * n * n) : c10::DataPtr{};
 
-  auto A_data = A.data_ptr<scalar_t>();
-  auto U_data = compute_uv ? U.data_ptr<scalar_t>() : reinterpret_cast<scalar_t*>(dataPtr_U.get());
-  auto S_data = S.data_ptr<value_t>();
-  auto V_data = compute_uv ? V.data_ptr<scalar_t>() : reinterpret_cast<scalar_t*>(dataPtr_V.get());
+  auto A_data = A.mutable_data_ptr<scalar_t>();
+  auto U_data = compute_uv ? U.mutable_data_ptr<scalar_t>() : reinterpret_cast<scalar_t*>(dataPtr_U.get());
+  auto S_data = S.mutable_data_ptr<value_t>();
+  auto V_data = compute_uv ? V.mutable_data_ptr<scalar_t>() : reinterpret_cast<scalar_t*>(dataPtr_V.get());
 
   auto handle = at::cuda::getCurrentCUDASolverDnHandle();
   auto jobz = compute_uv ? CUSOLVER_EIG_MODE_VECTOR : CUSOLVER_EIG_MODE_NOVECTOR;
@@ -570,7 +570,7 @@ inline static void apply_svd_cusolver_gesvdaStridedBatched(const Tensor& A, cons
   at::cuda::solver::gesvdaStridedBatched<scalar_t>(
     handle, jobz, rank, m, n, A_data, lda, A_stride, S_data, S_stride, U_data, ldu, U_stride, V_data, ldv, V_stride,
     reinterpret_cast<scalar_t*>(workspace.get()),
-    lwork, infos.data_ptr<int>(),
+    lwork, infos.mutable_data_ptr<int>(),
     nullptr,  // cuSOLVER h_RnrmF is not calculated: reinterpret_cast<double*>(residual_frobenius_norm.get()),
     batchsize);
 #endif
@@ -724,8 +724,8 @@ inline static void apply_cholesky_cusolver_potrf_looped(const Tensor& self_worki
   const int64_t batch_size = batchCount(self_working_copy);
   const int64_t matrix_stride = matrixStride(self_working_copy);
 
-  scalar_t* self_working_copy_ptr = self_working_copy.data_ptr<scalar_t>();
-  int* infos_ptr = infos.data_ptr<int>();
+  scalar_t* self_working_copy_ptr = self_working_copy.mutable_data_ptr<scalar_t>();
+  int* infos_ptr = infos.mutable_data_ptr<int>();
 
 #ifdef USE_CUSOLVER_64_BIT
   size_t worksize_device;
@@ -798,8 +798,8 @@ inline static void apply_cholesky_cusolver_potrfBatched(const Tensor& self_worki
 
   at::cuda::solver::potrfBatched<scalar_t>(
     handle, uplo, n,
-    reinterpret_cast<scalar_t**>(self_working_copy_array.data_ptr()),
-    lda, infos.data_ptr<int>(), batch_size);
+    reinterpret_cast<scalar_t**>(self_working_copy_array.mutable_data_ptr()),
+    lda, infos.mutable_data_ptr<int>(), batch_size);
 }
 
 void cholesky_helper_cusolver(const Tensor& input, bool upper, const Tensor& info) {
@@ -828,13 +828,13 @@ inline static void apply_cholesky_cusolver_potrs(Tensor& self_working_copy, cons
   const int64_t lda = std::max<int64_t>(1, n);
   const int64_t batch_size = batchCount(self_working_copy);
   const int64_t self_matrix_stride = matrixStride(self_working_copy);
-  scalar_t* self_working_copy_ptr = self_working_copy.data_ptr<scalar_t>();
+  scalar_t* self_working_copy_ptr = self_working_copy.mutable_data_ptr<scalar_t>();
 
-  scalar_t* A_ptr = A_column_major_copy.data_ptr<scalar_t>();
+  const scalar_t* A_ptr = A_column_major_copy.data_ptr<scalar_t>();
   const int64_t A_matrix_stride = matrixStride(A_column_major_copy);
   const int64_t ldb = std::max<int64_t>(1, A_column_major_copy.size(-1));
 
-  int* infos_ptr = infos.data_ptr<int>();
+  int* infos_ptr = infos.mutable_data_ptr<int>();
 
 #ifdef USE_CUSOLVER_64_BIT
   cusolverDnParams_t params;
@@ -886,7 +886,7 @@ inline static void apply_cholesky_cusolver_potrsBatched(Tensor& self_working_cop
 
   const int64_t ldb = std::max<int64_t>(1, A_column_major_copy.size(-1));
 
-  int* infos_ptr = infos.data_ptr<int>();
+  int* infos_ptr = infos.mutable_data_ptr<int>();
 
   auto self_ptr_array = get_device_pointers<scalar_t>(self_working_copy);
   auto A_ptr_array = get_device_pointers<scalar_t>(A_column_major_copy);
@@ -895,9 +895,9 @@ inline static void apply_cholesky_cusolver_potrsBatched(Tensor& self_working_cop
     handle, uplo,
     cuda_int_cast(n, "n"),
     cuda_int_cast(nrhs, "nrhs"),
-    reinterpret_cast<scalar_t**>(A_ptr_array.data_ptr()),
+    reinterpret_cast<scalar_t**>(A_ptr_array.mutable_data_ptr()),
     cuda_int_cast(lda, "lda"),
-    reinterpret_cast<scalar_t**>(self_ptr_array.data_ptr()),
+    reinterpret_cast<scalar_t**>(self_ptr_array.mutable_data_ptr()),
     cuda_int_cast(ldb, "ldb"),
     infos_ptr,
     cuda_int_cast(batch_size, "batch_size")
@@ -974,11 +974,11 @@ static void apply_geqrf(const Tensor& A, const Tensor& tau) {
   auto A_stride = matrixStride(A);
   auto tau_stride = tau.size(-1);
 
-  auto A_data = A.data_ptr<scalar_t>();
-  auto tau_data = tau.data_ptr<scalar_t>();
+  auto A_data = A.mutable_data_ptr<scalar_t>();
+  auto tau_data = tau.mutable_data_ptr<scalar_t>();
 
   auto infos = at::zeros({1}, A.options().dtype(at::kInt));
-  auto infos_data = infos.data_ptr<int>();
+  auto infos_data = infos.mutable_data_ptr<int>();
 
   // get the optimal work size and allocate workspace tensor
 #ifdef USE_CUSOLVER_64_BIT
@@ -1080,7 +1080,7 @@ static void apply_ormqr(const Tensor& input, const Tensor& tau, const Tensor& ot
 
   auto input_data = input.data_ptr<scalar_t>();
   auto tau_data = tau.data_ptr<scalar_t>();
-  auto other_data = other.data_ptr<scalar_t>();
+  auto other_data = other.mutable_data_ptr<scalar_t>();
 
   auto input_matrix_stride = matrixStride(input);
   auto other_matrix_stride = matrixStride(other);
@@ -1098,12 +1098,12 @@ static void apply_ormqr(const Tensor& input, const Tensor& tau, const Tensor& ot
     at::cuda::getCurrentCUDASolverDnHandle(), side, trans, m, n, k, input_data, lda, tau_data, other_data, ldc, &lwork);
 
   auto info = at::zeros({1}, input.options().dtype(at::kInt));
-  auto info_data = info.data_ptr<int>();
+  auto info_data = info.mutable_data_ptr<int>();
 
   for (auto i = decltype(batch_size){0}; i < batch_size; i++) {
-    scalar_t* input_working_ptr = &input_data[i * input_matrix_stride];
+    const scalar_t* input_working_ptr = &input_data[i * input_matrix_stride];
     scalar_t* other_working_ptr = &other_data[i * other_matrix_stride];
-    scalar_t* tau_working_ptr = &tau_data[i * tau_stride];
+    const scalar_t* tau_working_ptr = &tau_data[i * tau_stride];
     auto handle = at::cuda::getCurrentCUDASolverDnHandle();
 
     // allocate workspace storage
@@ -1148,7 +1148,7 @@ void ormqr_cusolver(const Tensor& input, const Tensor& tau, const Tensor& other,
 */
 template <typename scalar_t>
 inline static void apply_orgqr(Tensor& self, const Tensor& tau) {
-  auto self_data = self.data_ptr<scalar_t>();
+  auto self_data = self.mutable_data_ptr<scalar_t>();
   auto tau_data = tau.data_ptr<scalar_t>();
   auto self_matrix_stride = matrixStride(self);
   auto batchsize = cuda_int_cast(batchCount(self), "batch size");
@@ -1176,11 +1176,11 @@ inline static void apply_orgqr(Tensor& self, const Tensor& tau) {
     at::cuda::getCurrentCUDASolverDnHandle(), m, n, k, self_data, lda, tau_data, &lwork);
 
   auto info = at::zeros({1}, self.options().dtype(at::kInt));
-  auto info_data = info.data_ptr<int>();
+  auto info_data = info.mutable_data_ptr<int>();
 
   for (auto i = decltype(batchsize){0}; i < batchsize; i++) {
     scalar_t* self_working_ptr = &self_data[i * self_matrix_stride];
-    scalar_t* tau_working_ptr = &tau_data[i * tau_stride];
+    const scalar_t* tau_working_ptr = &tau_data[i * tau_stride];
     auto handle = at::cuda::getCurrentCUDASolverDnHandle();
 
     // allocate workspace storage
@@ -1225,9 +1225,9 @@ static void apply_syevd(const Tensor& values, const Tensor& vectors, const Tenso
   auto vectors_stride = matrixStride(vectors);
   auto values_stride = values.size(-1);
 
-  auto vectors_data = vectors.data_ptr<scalar_t>();
-  auto values_data = values.data_ptr<value_t>();
-  auto infos_data = infos.data_ptr<int>();
+  auto vectors_data = vectors.mutable_data_ptr<scalar_t>();
+  auto values_data = values.mutable_data_ptr<value_t>();
+  auto infos_data = infos.mutable_data_ptr<int>();
 
   // get the optimal work size and allocate workspace tensor
 #ifdef USE_CUSOLVER_64_BIT
@@ -1312,9 +1312,9 @@ static void apply_syevj(const Tensor& values, const Tensor& vectors, const Tenso
   auto vectors_stride = matrixStride(vectors);
   auto values_stride = values.size(-1);
 
-  auto vectors_data = vectors.data_ptr<scalar_t>();
-  auto values_data = values.data_ptr<value_t>();
-  auto infos_data = infos.data_ptr<int>();
+  auto vectors_data = vectors.mutable_data_ptr<scalar_t>();
+  auto values_data = values.mutable_data_ptr<value_t>();
+  auto infos_data = infos.mutable_data_ptr<int>();
 
   // syevj_params controls the numerical accuracy of syevj
   // by default the tolerance is set to machine accuracy
@@ -1366,9 +1366,9 @@ static void apply_syevj_batched(const Tensor& values, const Tensor& vectors, con
   int lda = std::max<int>(1, n);
   int batch_size = cuda_int_cast(batchCount(vectors), "batch_size");
 
-  auto vectors_data = vectors.data_ptr<scalar_t>();
-  auto values_data = values.data_ptr<value_t>();
-  auto infos_data = infos.data_ptr<int>();
+  auto vectors_data = vectors.mutable_data_ptr<scalar_t>();
+  auto values_data = values.mutable_data_ptr<value_t>();
+  auto infos_data = infos.mutable_data_ptr<int>();
 
   // syevj_params controls the numerical accuracy of syevj
   // by default the tolerance is set to machine accuracy
@@ -1463,10 +1463,10 @@ void lu_factor_looped_cusolver(const Tensor& self, const Tensor& pivots, const T
     const auto lda = std::max<int>(1, m);
     const auto self_stride = matrixStride(self);
     const auto batch_size = batchCount(self);
-    const auto self_data = self.data_ptr<scalar_t>();
-    const auto infos_data = infos.data_ptr<int>();
+    const auto self_data = self.mutable_data_ptr<scalar_t>();
+    const auto infos_data = infos.mutable_data_ptr<int>();
 
-    const auto pivots_data = get_pivots ? pivots.data_ptr<int>() : nullptr;
+    const auto pivots_data = get_pivots ? pivots.mutable_data_ptr<int>() : nullptr;
     const auto pivots_stride = get_pivots ? pivots.size(-1) : 0;
 
     const auto handle = at::cuda::getCurrentCUDASolverDnHandle();
@@ -1502,10 +1502,10 @@ void lu_solve_looped_cusolver(const Tensor& LU, const Tensor& pivots, const Tens
     int nrhs = cuda_int_cast(B.size(-1), "nrhs");
     auto batch_size = batchCount(B);
     auto info = at::zeros({1}, LU.options().dtype(kInt));
-    auto info_data = info.data_ptr<int>();
-    auto b_data = B.data_ptr<scalar_t>();
-    auto lu_data = LU.data_ptr<scalar_t>();
-    auto pivots_data = pivots.data_ptr<int>();
+    auto info_data = info.mutable_data_ptr<int>();
+    auto b_data = B.mutable_data_ptr<scalar_t>();
+    auto lu_data = LU.mutable_data_ptr<scalar_t>();
+    auto pivots_data = pivots.mutable_data_ptr<int>();
     auto pivots_stride = pivots.dim() > 1 ? pivots.stride(-2) : 0;
     auto lu_stride = LU.dim() > 2 ? LU.stride(-3) : 0;
     auto b_stride = matrixStride(B);

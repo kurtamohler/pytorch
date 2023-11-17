@@ -26,7 +26,7 @@ TEST(CachingHostAllocatorTest, pinned_alias_slice) {
   // Check an tensor constructed with from_blob can be correctly recorded (via
   // the shared data_ptr)
   auto alias_tensor = at::from_blob(
-      pinned_tensor.data_ptr(), pinned_tensor.sizes(), pinned_tensor.options());
+      pinned_tensor.mutable_data_ptr(), pinned_tensor.sizes(), pinned_tensor.options());
   ASSERT_TRUE(alias_tensor.is_pinned());
 
   ASSERT_FALSE(
@@ -54,7 +54,7 @@ TEST(CachingHostAllocatorTest, pinned_alias_slice) {
   // Check a tensor that has neither a matching context nor data_ptr cannot be
   // recorded.
   auto alias_slice_tensor = at::from_blob(
-      slice_tensor.data_ptr(), slice_tensor.sizes(), slice_tensor.options());
+      slice_tensor.mutable_data_ptr(), slice_tensor.sizes(), slice_tensor.options());
   ASSERT_TRUE(alias_slice_tensor.is_pinned());
   ASSERT_FALSE(at::cuda::CachingHostAllocator_recordEvent(
       alias_slice_tensor.data_ptr(),
@@ -128,7 +128,7 @@ TEST(CachingHostAllocatorTest, check_empty_cache) {
     return;
   }
 
-  void* ptr{nullptr};
+  const void* ptr{nullptr};
   void* ctx{nullptr};
   {
     auto pinned_tensor = at::empty(
@@ -149,7 +149,7 @@ TEST(CachingHostAllocatorTest, check_reuse) {
     return;
   }
 
-  void* ptr{nullptr};
+  const void* ptr{nullptr};
   void* ctx{nullptr};
   {
     auto pinned_tensor = at::empty(

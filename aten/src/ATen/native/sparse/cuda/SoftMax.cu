@@ -90,12 +90,12 @@ int64_t get_nvalues(const IntArrayRef& sizes, int64_t sparse_dim) {
 
 template <typename scalar_t, bool LogSoftMax>
 __global__ void cuda_sparse_coo_softmax_kernel(
-    int64_t* sorted_pool_indices,
+    const int64_t* sorted_pool_indices,
     int64_t pool_size,
-    int64_t* pool_sizes,
-    int64_t* pool_offsets,
+    const int64_t* pool_sizes,
+    const int64_t* pool_offsets,
     int64_t nvalues,
-    scalar_t* mx_rows,
+    const scalar_t* mx_rows,
     PackedTensorAccessor<scalar_t, 2> input_values_acc,
     PackedTensorAccessor<scalar_t, 2> output_values_acc) {
   /*
@@ -113,9 +113,9 @@ __global__ void cuda_sparse_coo_softmax_kernel(
 
   while (index < pool_size) {
     int64_t offset = pool_offsets[index];
-    int64_t* pool_indices = sorted_pool_indices + offset;
+    const int64_t* pool_indices = sorted_pool_indices + offset;
     int64_t pool_indices_size = pool_sizes[index];
-    scalar_t* mx_row = mx_rows + index * nvalues;
+    const scalar_t* mx_row = mx_rows + index * nvalues;
 
     for (int64_t j = 0; j < nvalues; j++) {
       scalar_t exp_sums = 0;
@@ -148,15 +148,15 @@ __global__ void cuda_sparse_coo_softmax_kernel(
 
 template <typename scalar_t, bool LogSoftMax>
 __global__ void cuda_sparse_coo_softmax_backward_kernel(
-    int64_t* sorted_pool_indices,
+    const int64_t* sorted_pool_indices,
     int64_t size,
-    int64_t* pool_sizes,
-    int64_t* pool_offsets,
+    const int64_t* pool_sizes,
+    const int64_t* pool_offsets,
     int64_t nvalues,
     int64_t grad_nnz,
-    int64_t* grad_offsets,
-    int64_t* out_offsets,
-    int64_t* lower_bound_values,
+    const int64_t* grad_offsets,
+    const int64_t* out_offsets,
+    const int64_t* lower_bound_values,
     PackedTensorAccessor<scalar_t, 2> values_accessor,
     PackedTensorAccessor<scalar_t, 2> out_values_accessor,
     PackedTensorAccessor<scalar_t, 2> grad_values_accessor) {
@@ -175,7 +175,7 @@ __global__ void cuda_sparse_coo_softmax_backward_kernel(
 
   while (index < size) {
     int64_t offset = pool_offsets[index];
-    int64_t* pool_indices = sorted_pool_indices + offset;
+    const int64_t* pool_indices = sorted_pool_indices + offset;
     int64_t pool_indices_size = pool_sizes[index];
 
     for (int64_t k = 0; k < nvalues; k++) {
@@ -251,7 +251,7 @@ Tensor get_offsets(
     }
   }
   auto strides = at::empty({ndim}, indices.options());
-  auto strides_ptr = strides.data_ptr<int64_t>();
+  auto strides_ptr = strides.mutable_data_ptr<int64_t>();
 
   AT_CUDA_CHECK(cudaMemcpyAsync(
           strides_ptr, host_strides.data(), host_strides.size() * sizeof(int64_t),
@@ -266,7 +266,7 @@ Tensor get_offsets(
       policy,
       thrust::make_counting_iterator(int64_t(0)),
       thrust::make_counting_iterator(int64_t(nnz)),
-      thrust::device_ptr<int64_t>(offsets.data_ptr<int64_t>()),
+      thrust::device_ptr<int64_t>(offsets.mutable_data_ptr<int64_t>()),
       [indices_accessor, strides_ptr, dim, ndim] __device__(int64_t x) {
         int64_t pool_index = 0;
         for (int64_t j = 0; j < ndim; j++) {
@@ -302,7 +302,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> compute_pool_max(
 
   auto nnz = indices.size(1);
   auto offsets = get_offsets(indices, sizes, dim);
-  int64_t* offsets_ptr = offsets.data_ptr<int64_t>();
+  const int64_t* offsets_ptr = offsets.data_ptr<int64_t>();
 
   auto sorted_indices = at::empty({nnz}, indices.options());
   thrust_ptr sorted_indices_thrust_ptr(sorted_indices.data_ptr<int64_t>());
@@ -349,7 +349,7 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> compute_pool_max(
 
     mx_buffer = at::full({new_sz * nvalues}, Scalar(-std::numeric_limits<scalar_t>::infinity()), values.options());
 
-    auto mx_buffer_ptr = mx_buffer.data_ptr<scalar_t>();
+    auto mx_buffer_ptr = mx_buffer.mutable_data_ptr<scalar_t>();
 
     auto pool_sizes_ptr = pool_sizes.data_ptr<int64_t>();
     auto sorted_indices_ptr = sorted_indices.data_ptr<int64_t>();

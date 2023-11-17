@@ -166,21 +166,21 @@ Tensor two_four_sgemm_cutlass(
     LayoutOutput layout_d(tensor_d.stride(0));
     auto tensor_a_device_ref =
         cutlass::TensorRef<ElementInputA, LayoutInputA>(
-            (ElementInputA*)tensor_a.data_ptr(), layout_a);
+            (ElementInputA*)tensor_a.mutable_data_ptr(), layout_a);
     auto tensor_b_device_ref =
         cutlass::TensorRef<ElementInputB, LayoutInputB>(
-            (ElementInputB*)tensor_b.data_ptr(), layout_b);
+            (ElementInputB*)tensor_b.mutable_data_ptr(), layout_b);
     auto tensor_c_device_ref =
         cutlass::TensorRef<ElementOutput, LayoutOutput>(
             (ElementOutput*)(tensor_c.numel() != 0 ?
-                             tensor_c.data_ptr() : tensor_d.data_ptr()),
+                             tensor_c.mutable_data_ptr() : tensor_d.mutable_data_ptr()),
             layout_c);
     auto tensor_d_device_ref =
         cutlass::TensorRef<ElementOutput, LayoutOutput>(
-            (ElementOutput*)tensor_d.data_ptr(), layout_d);
+            (ElementOutput*)tensor_d.mutable_data_ptr(), layout_d);
     auto tensor_e_reordered_device_ref =
         cutlass::TensorRef<ElementInputE, ReorderedLayoutInputE>(
-            (ElementInputE*)meta.data_ptr(),
+            (ElementInputE*)meta.mutable_data_ptr(),
             ReorderedLayoutInputE::packed({length_m, meta_ncols}));
     ElementComputeEpilogue alpha(1);
     ElementComputeEpilogue beta(tensor_c.numel() != 0 ? 1 : 0);
@@ -832,11 +832,11 @@ _to_sparse_semi_structured(const Tensor& dense) {
       const auto idx = i * meta_ncols + j;
       if (meta_dtype == at::kShort) {
         using MetaElement = int16_t;
-        const auto meta_cpu_ptr = meta_cpu.data_ptr<MetaElement>();
+        const auto meta_cpu_ptr = meta_cpu.mutable_data_ptr<MetaElement>();
         meta_cpu_ptr[idx] = (MetaElement)meta_val;
       } else if (meta_dtype == at::kInt) {
         using MetaElement = int32_t;
-        const auto meta_cpu_ptr = meta_cpu.data_ptr<MetaElement>();
+        const auto meta_cpu_ptr = meta_cpu.mutable_data_ptr<MetaElement>();
         meta_cpu_ptr[idx] = (MetaElement)meta_val;
       }
     }
@@ -849,22 +849,22 @@ _to_sparse_semi_structured(const Tensor& dense) {
     using MetaElement = int16_t;
     auto meta_cpu_ref =
       cutlass::TensorRef<MetaElement, MetaLayout>(
-          meta_cpu.data_ptr<MetaElement>(),
+          meta_cpu.mutable_data_ptr<MetaElement>(),
           MetaLayout::packed({meta_nrows, meta_ncols}));
     auto meta_reordered_cpu_ref =
       cutlass::TensorRef<MetaElement, MetaReorderedLayout>(
-          meta_reordered_cpu.data_ptr<MetaElement>(),
+          meta_reordered_cpu.mutable_data_ptr<MetaElement>(),
           MetaReorderedLayout::packed({meta_nrows, meta_ncols}));
     reorder_meta(meta_reordered_cpu_ref, meta_cpu_ref, meta_nrows, meta_ncols);
   } else if (meta_dtype == at::kInt) {
     using MetaElement = int32_t;
     auto meta_cpu_ref =
       cutlass::TensorRef<MetaElement, MetaLayout>(
-          meta_cpu.data_ptr<MetaElement>(),
+          meta_cpu.mutable_data_ptr<MetaElement>(),
           MetaLayout::packed({meta_nrows, meta_ncols}));
     auto meta_reordered_cpu_ref =
       cutlass::TensorRef<MetaElement, MetaReorderedLayout>(
-          meta_reordered_cpu.data_ptr<MetaElement>(),
+          meta_reordered_cpu.mutable_data_ptr<MetaElement>(),
           MetaReorderedLayout::packed({meta_nrows, meta_ncols}));
     reorder_meta(meta_reordered_cpu_ref, meta_cpu_ref, meta_nrows, meta_ncols);
   }

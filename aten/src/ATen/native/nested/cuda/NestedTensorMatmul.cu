@@ -51,9 +51,9 @@ void gemm_grouped_cuda_internal(
     const std::vector<int64_t>& lda,
     const std::vector<int64_t>& ldb,
     const std::vector<int64_t>& ldd,
-    const std::vector<scalar_t*>& aptr,
-    const std::vector<scalar_t*>& bptr,
-    const std::vector<scalar_t*>& dptr,
+    const std::vector<const scalar_t*>& aptr,
+    const std::vector<const scalar_t*>& bptr,
+    const std::vector<const scalar_t*>& dptr,
     const std::vector<cutlass::gemm::GemmCoord>& gemm_sizes,
     const int problem_count,
     at::Device& device) {
@@ -102,7 +102,7 @@ void gemm_grouped_cuda_internal(
       at::TensorOptions().dtype(at::kLong).pinned_memory(true));
 
   // Obtain pointers for each argument (on host)
-  int64_t* lda_data = gmm_args.data_ptr<int64_t>(); // Base pointer
+  int64_t* lda_data = gmm_args.mutable_data_ptr<int64_t>(); // Base pointer
   int64_t* ldb_data = lda_data + problem_count;
   int64_t* ldd_data = lda_data + 2 * problem_count;
   int64_t* ptr_a_data = lda_data + 3 * problem_count;
@@ -128,7 +128,7 @@ void gemm_grouped_cuda_internal(
   gmm_args = gmm_args.to(device, true);
 
   // Obtain pointers for each of arguments (on GPU)
-  lda_data = gmm_args.data_ptr<int64_t>(); // Base pointer
+  lda_data = gmm_args.mutable_data_ptr<int64_t>(); // Base pointer
   ldb_data = lda_data + problem_count;
   ldd_data = lda_data + 2 * problem_count;
   ptr_a_data = lda_data + 3 * problem_count;
@@ -177,9 +177,9 @@ void gemm_grouped_cuda_internal(
 template <typename scalar_t>
 bool group_gemm_dispatch(
     at::Device device,
-    const std::vector<scalar_t*>& aptr,
-    const std::vector<scalar_t*>& bptr,
-    const std::vector<scalar_t*>& dptr,
+    const std::vector<const scalar_t*>& aptr,
+    const std::vector<const scalar_t*>& bptr,
+    const std::vector<const scalar_t*>& dptr,
     const std::vector<int64_t>& lda,
     const std::vector<int64_t>& ldb,
     const std::vector<int64_t>& ldd,
@@ -191,9 +191,9 @@ bool group_gemm_dispatch(
 template <>
 bool group_gemm_dispatch(
     at::Device device,
-    const std::vector<float*>& aptr,
-    const std::vector<float*>& bptr,
-    const std::vector<float*>& dptr,
+    const std::vector<const float*>& aptr,
+    const std::vector<const float*>& bptr,
+    const std::vector<const float*>& dptr,
     const std::vector<int64_t>& lda,
     const std::vector<int64_t>& ldb,
     const std::vector<int64_t>& ldd,
@@ -217,9 +217,9 @@ bool group_gemm_dispatch(
 template <>
 bool group_gemm_dispatch(
     at::Device device,
-    const std::vector<c10::Half*>& aptr_,
-    const std::vector<c10::Half*>& bptr_,
-    const std::vector<c10::Half*>& dptr_,
+    const std::vector<const c10::Half*>& aptr_,
+    const std::vector<const c10::Half*>& bptr_,
+    const std::vector<const c10::Half*>& dptr_,
     const std::vector<int64_t>& lda,
     const std::vector<int64_t>& ldb,
     const std::vector<int64_t>& ldd,
@@ -307,7 +307,7 @@ Tensor bmm_nested_cuda(const Tensor& self, const Tensor& mat2) {
   // create a contiguous output
   const Tensor& self_sizemat = self_ptr->get_nested_sizes();
   Tensor out_sizemat = self_sizemat.new_empty(self_sizemat.sizes());
-  int64_t* out_sizemat_ptr = out_sizemat.data_ptr<int64_t>();
+  int64_t* out_sizemat_ptr = out_sizemat.mutable_data_ptr<int64_t>();
 
   std::vector<IntArrayRef> self_sizes = NestedTensor_get_sizes(self_ptr);
   std::vector<IntArrayRef> mat2_sizes = NestedTensor_get_sizes(mat2_ptr);
@@ -351,9 +351,9 @@ Tensor bmm_nested_cuda(const Tensor& self, const Tensor& mat2) {
   bool success = false;
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       self.scalar_type(), "group_gemm_dispatch", [&] {
-        std::vector<scalar_t*> aptr(ntensors);
-        std::vector<scalar_t*> bptr(ntensors);
-        std::vector<scalar_t*> dptr(ntensors);
+        std::vector<const scalar_t*> aptr(ntensors);
+        std::vector<const scalar_t*> bptr(ntensors);
+        std::vector<const scalar_t*> dptr(ntensors);
         std::vector<int64_t> lda(ntensors);
         std::vector<int64_t> ldb(ntensors);
         std::vector<int64_t> ldd(ntensors);

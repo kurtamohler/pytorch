@@ -2716,7 +2716,7 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::allreduce_impl(
             opts.reduceOp, input, ncclDataType, comm, dev_in_group++);
         return ncclAllReduce(
             input.data_ptr(),
-            output.data_ptr(),
+            output.mutable_data_ptr(),
             input.numel(),
             ncclDataType,
             ncclReduceOp,
@@ -2813,7 +2813,7 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::broadcast(
           at::cuda::CUDAStream& stream) {
         const auto root = opts.rootRank * tensors.size() + opts.rootTensor;
         return ncclBcast(
-            input.data_ptr(),
+            input.mutable_data_ptr(),
             input.numel(),
             getNcclDataType(input.scalar_type()),
             root,
@@ -2874,7 +2874,7 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::_broadcast_oop(
         const auto root = opts.rootRank * inputTensors.size() + opts.rootTensor;
         return ncclBroadcast(
             input.data_ptr(),
-            output.data_ptr(),
+            output.mutable_data_ptr(),
             input.numel(),
             getNcclDataType(input.scalar_type()),
             root,
@@ -2921,7 +2921,7 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::reduce(
             opts.reduceOp, input, ncclDataType, comm, dev_in_group++);
         return ncclReduce(
             input.data_ptr(),
-            output.data_ptr(),
+            output.mutable_data_ptr(),
             input.numel(),
             ncclDataType,
             ncclReduceOp,
@@ -2984,7 +2984,7 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::_reduce_oop(
             opts.reduceOp, input, ncclDataType, comm, dev_in_group++);
         return ncclReduce(
             input.data_ptr(),
-            output.data_ptr(),
+            output.mutable_data_ptr(),
             input.numel(),
             ncclDataType,
             ncclReduceOp,
@@ -3041,7 +3041,7 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::allgather(
           }
           return ncclAllGather(
               input.data_ptr(),
-              output.data_ptr(),
+              output.mutable_data_ptr(),
               input.numel(),
               getNcclDataType(input.scalar_type()),
               comm,
@@ -3128,7 +3128,7 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::allgather_into_tensor_coalesced(
           at::cuda::CUDAStream& stream) {
         return ncclAllGather(
             input.data_ptr(),
-            output.data_ptr(),
+            output.mutable_data_ptr(),
             input.numel(),
             getNcclDataType(input.scalar_type()),
             comm,
@@ -3187,7 +3187,7 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::reduce_scatter(
               opts.reduceOp, input, ncclDataType, comm, dev_in_group++);
           return ncclReduceScatter(
               input.data_ptr(),
-              output.data_ptr(),
+              output.mutable_data_ptr(),
               output.numel(),
               ncclDataType,
               ncclReduceOp,
@@ -3321,7 +3321,7 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::_reduce_scatter_base(
             opts.reduceOp, input, ncclDataType, comm, dev_in_group++);
         return ncclReduceScatter(
             input.data_ptr(),
-            output.data_ptr(),
+            output.mutable_data_ptr(),
             output.numel(),
             ncclDataType,
             ncclReduceOp,
@@ -3353,7 +3353,7 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::reduce_scatter_tensor_coalesced(
             opts.reduceOp, input, ncclDataType, comm, /*dev_in_group=*/0);
         return ncclReduceScatter(
             input.data_ptr(),
-            output.data_ptr(),
+            output.mutable_data_ptr(),
             output.numel(),
             ncclDataType,
             ncclReduceOp,
@@ -3527,7 +3527,7 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::alltoall_base(
               input.data_ptr(),
               send_lengths.data(),
               send_offsets.data(),
-              output.data_ptr(),
+              output.mutable_data_ptr(),
               recv_lengths.data(),
               recv_offsets.data(),
               input.element_size(),
@@ -4012,7 +4012,7 @@ c10::intrusive_ptr<Work> ProcessGroupNCCL::_allgather_base(
         }
         return ncclAllGather(
             input.data_ptr(),
-            output.data_ptr(),
+            output.mutable_data_ptr(),
             input.numel(),
             getNcclDataType(input.scalar_type()),
             comm,

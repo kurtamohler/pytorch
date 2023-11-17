@@ -22,7 +22,7 @@ getTensorInfo(const at::TensorBase &t) {
   }
 
   return TensorInfo<scalar, IndexType>(
-    t.data_ptr<scalar>(), dims, sz, st);
+    t.mutable_data_ptr<scalar>(), dims, sz, st);
 }
 
 } // namespace at::cuda::detail

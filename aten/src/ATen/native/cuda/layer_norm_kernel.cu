@@ -768,9 +768,9 @@ void LayerNormKernelImplInternal(
   const T* X_data = X.const_data_ptr<T>();
   const T* gamma_data = gamma.defined() ? gamma.const_data_ptr<T>() : nullptr;
   const T* beta_data = beta.defined() ? beta.const_data_ptr<T>() : nullptr;
-  T* Y_data = Y->data_ptr<T>();
-  T_ACC* mean_data = mean->data_ptr<T_ACC>();
-  T_ACC* rstd_data = rstd->data_ptr<T_ACC>();
+  T* Y_data = Y->mutable_data_ptr<T>();
+  T_ACC* mean_data = mean->mutable_data_ptr<T_ACC>();
+  T_ACC* rstd_data = rstd->mutable_data_ptr<T_ACC>();
 
   // check if can take fast path - all tensors are properly aligned, N is less than 2^24 (to use float count),
   // N is multiple of vec_size (so that all rows are aligned if tensor is aligned)
@@ -1152,7 +1152,7 @@ void LayerNormBackwardKernelImplInternal(
   const T_ACC* rstd_data = rstd.template data_ptr<T_ACC>();
   const T* gamma_data =
       gamma.defined() ? gamma.template data_ptr<T>() : nullptr;
-  T* dX_data = dX->defined() ? dX->template data_ptr<T>() : nullptr;
+  T* dX_data = dX->defined() ? dX->template mutable_data_ptr<T>() : nullptr;
   cudaStream_t cuda_stream = at::cuda::getCurrentCUDAStream();
   const int warp_size = at::cuda::warp_size();
   if (dX_data != nullptr) {
@@ -1207,8 +1207,8 @@ void LayerNormBackwardKernelImplInternal(
 
   if (dgamma->defined() || dbeta->defined()) {
     T* dgamma_data =
-        dgamma->defined() ? dgamma->template data_ptr<T>() : nullptr;
-    T* dbeta_data = dbeta->defined() ? dbeta->template data_ptr<T>() : nullptr;
+        dgamma->defined() ? dgamma->template mutable_data_ptr<T>() : nullptr;
+    T* dbeta_data = dbeta->defined() ? dbeta->template mutable_data_ptr<T>() : nullptr;
 
     if (M < 128) {
       // For small batch size, do colwise reduce directly.
@@ -1244,8 +1244,8 @@ void LayerNormBackwardKernelImplInternal(
                       M,N,
                       mean_data,
                       rstd_data,
-                      part_grad_gamma.template data_ptr<T_ACC>(),
-                      part_grad_beta.template data_ptr<T_ACC>());
+                      part_grad_gamma.template mutable_data_ptr<T_ACC>(),
+                      part_grad_beta.template mutable_data_ptr<T_ACC>());
       C10_CUDA_KERNEL_LAUNCH_CHECK();
 
       const dim3 threads3(warp_size, 8, 1); // Optimization for ROCm
@@ -1253,8 +1253,8 @@ void LayerNormBackwardKernelImplInternal(
       const int nshared3 = threads3.x * threads3.y * sizeof(T_ACC);
 
       cuComputeGradGammaBeta<<<blocks3, threads3, nshared3, cuda_stream>>>(
-                      part_grad_gamma.template data_ptr<T_ACC>(),
-                      part_grad_beta.template data_ptr<T_ACC>(),
+                      part_grad_gamma.template mutable_data_ptr<T_ACC>(),
+                      part_grad_beta.template mutable_data_ptr<T_ACC>(),
                       part_size,
                       M,N,
                       dgamma_data,

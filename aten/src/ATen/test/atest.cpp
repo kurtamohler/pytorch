@@ -299,10 +299,10 @@ TEST_F(atest, atest) {
     // Attempt to specify the wrong device in from_blob
     auto t = at::empty({1, 2, 3}, TensorOptions(kCUDA, 0));
     // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-    EXPECT_ANY_THROW(from_blob(t.data_ptr(), {1, 2, 3}, at::Device(kCUDA, 1)));
+    EXPECT_ANY_THROW(from_blob(t.mutable_data_ptr(), {1, 2, 3}, at::Device(kCUDA, 1)));
 
     // Infers the correct device
-    auto t_ = from_blob(t.data_ptr(), {1, 2, 3}, kCUDA);
+    auto t_ = from_blob(t.mutable_data_ptr(), {1, 2, 3}, kCUDA);
     ASSERT_EQ(t_.device(), at::Device(kCUDA, 0));
   }
 }

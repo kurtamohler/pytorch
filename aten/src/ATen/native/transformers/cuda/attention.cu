@@ -1135,8 +1135,8 @@ std::tuple<at::Tensor, at::Tensor, Tensor, Tensor> _efficient_attention_forward(
     if (p.use_dropout) {
       p.rng_engine_inputs = philox_state;
       p.dropout_prob = dropout_p;
-      p.seed = seed_t.data_ptr<int64_t>();
-      p.extragraph_offset = offset_t.data_ptr<int64_t>();
+      p.seed = seed_t.mutable_data_ptr<int64_t>();
+      p.extragraph_offset = offset_t.mutable_data_ptr<int64_t>();
     }
 
     if (smem_bytes > 0xc000) {
@@ -1256,7 +1256,7 @@ at::Tensor& _fill_mem_eff_dropout_mask_(
       n_keys,
       dropout_p,
       rng_engine_inputs,
-      reinterpret_cast<float*>(self.data_ptr()),
+      reinterpret_cast<float*>(self.mutable_data_ptr()),
       self.numel());
 
   return self;

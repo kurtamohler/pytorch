@@ -69,10 +69,10 @@ Tensor& randperm_out_cuda(int64_t n, c10::optional<Generator> generator, Tensor&
   Tensor shuffled;
   void *shuffled_data;
   if (result.is_contiguous()) {
-    shuffled_data = result.data_ptr();
+    shuffled_data = result.mutable_data_ptr();
   } else {
     shuffled = at::empty(n, result.options());
-    shuffled_data = shuffled.data_ptr();
+    shuffled_data = shuffled.mutable_data_ptr();
   }
 
   auto opt = TensorOptions().device(result.device());

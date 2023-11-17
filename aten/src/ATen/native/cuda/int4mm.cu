@@ -786,7 +786,7 @@ void launch_tinygemm_kernel(
       A.data_ptr(),
       B.data_ptr(),
       qScaleAndZeros ? qScaleAndZeros->data_ptr() : nullptr,
-      C_final.data_ptr(),
+      C_final.mutable_data_ptr(),
       m,
       n,
       k,

@@ -100,7 +100,7 @@ static DLDevice getDLDevice(const Tensor& tensor, const int64_t& device_id) {
       break;
     case DeviceType::XPU:
       ctx = at::detail::getXPUHooks().getDLPackDeviceFromATenDevice(
-          ctx, tensor.device(), tensor.data_ptr());
+          ctx, tensor.device(), tensor.mutable_data_ptr());
       break;
     default:
       TORCH_CHECK(false, "Cannot pack tensors on " + tensor.device().str());
@@ -254,7 +254,7 @@ DLManagedTensor* toDLPack(const Tensor& src) {
   atDLMTensor->handle = view;
   atDLMTensor->tensor.manager_ctx = atDLMTensor;
   atDLMTensor->tensor.deleter = &deleter;
-  atDLMTensor->tensor.dl_tensor.data = view.data_ptr();
+  atDLMTensor->tensor.dl_tensor.data = view.mutable_data_ptr();
   int64_t device_id = 0;
   if (src.is_cuda()) {
     device_id = src.get_device();

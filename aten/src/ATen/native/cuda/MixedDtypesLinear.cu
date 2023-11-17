@@ -140,7 +140,7 @@ mixed_dtypes_linear_cutlass(
                                   at::TensorOptions().dtype(at::kByte));
 
   // Initialize CUTLASS mixed datatypes GEMM object.
-  status = gemm_op.initialize(arguments, workspace.data_ptr(),
+  status = gemm_op.initialize(arguments, workspace.mutable_data_ptr(),
                               at::cuda::getCurrentCUDAStream());
   CUTLASS_STATUS_CHECK(status);
 

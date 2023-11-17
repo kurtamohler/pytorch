@@ -315,7 +315,7 @@ static const Tensor& _exec_fft(Tensor& out, const Tensor& self, IntArrayRef out_
     at::globalContext().getNVRTC().cuCtxSetCurrent(pctx);
   }
 #endif /* !defined(USE_ROCM) */
-  exec_cufft_plan(*config, input.data_ptr(), out.data_ptr(), forward);
+  exec_cufft_plan(*config, input.mutable_data_ptr(), out.mutable_data_ptr(), forward);
 
   // Inplace reshaping to original batch shape and inverting the dimension permutation
   DimVector out_strides(ndim);

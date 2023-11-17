@@ -226,7 +226,7 @@ void batch_iterator_with_broadcasting(const Tensor& a, const Tensor& b, const fu
     check_if_copy_needed_for_a = [&](int64_t a_curr_linear_batch_idx) {
       auto* a_was_accessed_flag = a_was_accessed
         .select(0, a_curr_linear_batch_idx)
-        .data_ptr<bool>();
+        .mutable_data_ptr<bool>();
       if (!(*a_was_accessed_flag)) {
         *a_was_accessed_flag = true;
       }
@@ -248,9 +248,9 @@ void batch_iterator_with_broadcasting(const Tensor& a, const Tensor& b, const fu
       check_if_copy_needed_for_a(a_curr_linear_batch_idx);
 
       auto* a_working_ptr = a_3d.select(0, a_curr_linear_batch_idx)
-        .data_ptr<scalar_t>();
+        .mutable_data_ptr<scalar_t>();
       auto* b_working_ptr = b_3d.select(0, b_curr_linear_batch_idx)
-        .data_ptr<scalar_t>();
+        .mutable_data_ptr<scalar_t>();
       f(a_working_ptr, b_working_ptr, a_curr_linear_batch_idx);
 
       b_batch_idx_ptr += strides[0];

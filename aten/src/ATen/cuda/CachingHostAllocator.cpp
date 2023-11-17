@@ -239,7 +239,7 @@ class CUDAHostAllocator {
     }
   }
 
-  bool record_event(void* ptr, void* ctx, at::cuda::CUDAStream stream) {
+  bool record_event(const void* ptr, void* ctx, at::cuda::CUDAStream stream) {
     auto* block = reinterpret_cast<Block*>(ctx);
 
     // Note: we need to check if the passed-in `ctx` is valid. This is because
@@ -455,7 +455,7 @@ class CUDAHostAllocator {
 
   alignas(64) std::mutex blocks_mutex_;
   std::unordered_set<Block*> blocks_;
-  std::unordered_map<void*, Block*> ptr_to_block_;
+  std::unordered_map<const void*, Block*> ptr_to_block_;
   // Note: sharding this mutex seems to be profitable in heavily multi-threaded
   // scenarios.
   alignas(64) std::mutex free_list_mutex_;
@@ -480,7 +480,7 @@ static void CUDAHostAllocatorDeleter(void* ctx) {
 }
 
 bool CachingHostAllocator_recordEvent(
-    void* ptr,
+    const void* ptr,
     void* ctx,
     at::cuda::CUDAStream stream) {
   return getCUDAHostAllocator().record_event(ptr, ctx, stream);

@@ -86,8 +86,8 @@ void apply_geqrf_batched(const Tensor& input, const Tensor& tau) {
   // cuBLAS batched geqrf requires input to be the device array of pointers to device single matrices
   Tensor input_ptr_array = get_device_pointers<scalar_t>(input);
   Tensor tau_ptr_array = get_device_pointers<scalar_t>(tau.unsqueeze(-1));
-  auto input_ptr_array_data = reinterpret_cast<scalar_t**>(input_ptr_array.data_ptr());
-  auto tau_ptr_array_data = reinterpret_cast<scalar_t**>(tau_ptr_array.data_ptr());
+  auto input_ptr_array_data = reinterpret_cast<scalar_t**>(input_ptr_array.mutable_data_ptr());
+  auto tau_ptr_array_data = reinterpret_cast<scalar_t**>(tau_ptr_array.mutable_data_ptr());
 
   int info;
   auto handle = at::cuda::getCurrentCUDABlasHandle();
@@ -113,10 +113,10 @@ static void apply_lu_factor_batched_cublas(const Tensor& A, const Tensor& pivots
   auto n = cuda_int_cast(A.size(-2), "n");
   auto lda = cuda_int_cast(std::max<int>(1, n), "lda");
 
-  auto pivots_data = get_pivots ? pivots.data_ptr<int>() : nullptr;
-  auto infos_data = infos.data_ptr<int>();
+  auto pivots_data = get_pivots ? pivots.mutable_data_ptr<int>() : nullptr;
+  auto infos_data = infos.mutable_data_ptr<int>();
   Tensor a_ptr_array = get_device_pointers<scalar_t>(A);
-  auto a_ptr_array_data = reinterpret_cast<scalar_t**>(a_ptr_array.data_ptr());
+  auto a_ptr_array_data = reinterpret_cast<scalar_t**>(a_ptr_array.mutable_data_ptr());
 
   at::cuda::blas::getrfBatched(n, a_ptr_array_data, lda, pivots_data, infos_data, batch_size);
 }
@@ -133,7 +133,7 @@ static void apply_lu_solve_batched_cublas(const Tensor& LU, const Tensor& pivots
   TORCH_INTERNAL_ASSERT(batchCount(LU) == batchCount(pivots.unsqueeze(-1)), "batch_size of LU and pivots must be the same");
   const auto trans = to_cublas(transpose);
 
-  auto pivots_data = pivots.data_ptr<int>();
+  auto pivots_data = pivots.mutable_data_ptr<int>();
   auto batch_size = cuda_int_cast(batchCount(LU), "batch_size");;
   auto m = cuda_int_cast(LU.size(-2), "m");
   auto nrhs = cuda_int_cast(B.size(-1), "nrhs");
@@ -142,8 +142,8 @@ static void apply_lu_solve_batched_cublas(const Tensor& LU, const Tensor& pivots
 
   Tensor lu_ptr_array = get_device_pointers<scalar_t>(LU);
   Tensor b_ptr_array = get_device_pointers<scalar_t>(B);
-  auto lu_ptr_array_data = reinterpret_cast<scalar_t**>(lu_ptr_array.data_ptr());
-  auto b_ptr_array_data = reinterpret_cast<scalar_t**>(b_ptr_array.data_ptr());
+  auto lu_ptr_array_data = reinterpret_cast<scalar_t**>(lu_ptr_array.mutable_data_ptr());
+  auto b_ptr_array_data = reinterpret_cast<scalar_t**>(b_ptr_array.mutable_data_ptr());
 
   auto handle = at::cuda::getCurrentCUDABlasHandle();
   at::cuda::blas::getrsBatched(handle, trans, m, nrhs, lu_ptr_array_data,
@@ -165,7 +165,7 @@ static void apply_triangular_solve(const Tensor& A, const Tensor& B, bool left, 
   cublasDiagType_t diag = unitriangular ? CUBLAS_DIAG_UNIT : CUBLAS_DIAG_NON_UNIT;
 
   auto A_data = A.data_ptr<scalar_t>();
-  auto B_data = B.data_ptr<scalar_t>();
+  auto B_data = B.mutable_data_ptr<scalar_t>();
   auto A_mat_stride = matrixStride(A);
   auto B_mat_stride = matrixStride(B);
   auto batch_size = batchCount(A);
@@ -178,7 +178,7 @@ static void apply_triangular_solve(const Tensor& A, const Tensor& B, bool left, 
   auto alpha = scalar_t{1};
 
   for (decltype(batch_size) i = 0; i < batch_size; i++) {
-    scalar_t* A_working_ptr = &A_data[i * A_mat_stride];
+    const scalar_t* A_working_ptr = &A_data[i * A_mat_stride];
     scalar_t* B_working_ptr = &B_data[i * B_mat_stride];
     auto handle = at::cuda::getCurrentCUDABlasHandle();
     at::cuda::blas::trsm(handle, side, uplo, trans, diag, m, n, &alpha, A_working_ptr, lda, B_working_ptr, ldb);
@@ -210,8 +210,8 @@ static void apply_triangular_solve_batched(const Tensor& A, const Tensor& B, boo
   // cuBLAS batched trsm requires input to be the device array of pointers to device single matrices
   Tensor A_ptr_array = get_device_pointers<scalar_t>(A);
   Tensor B_ptr_array = get_device_pointers<scalar_t>(B);
-  auto A_ptr_array_data = reinterpret_cast<scalar_t**>(A_ptr_array.data_ptr());
-  auto B_ptr_array_data = reinterpret_cast<scalar_t**>(B_ptr_array.data_ptr());
+  auto A_ptr_array_data = reinterpret_cast<scalar_t**>(A_ptr_array.mutable_data_ptr());
+  auto B_ptr_array_data = reinterpret_cast<scalar_t**>(B_ptr_array.mutable_data_ptr());
 
   auto handle = at::cuda::getCurrentCUDABlasHandle();
   at::cuda::blas::trsmBatched(handle, side, uplo, trans, diag, m, n, &alpha, A_ptr_array_data, lda, B_ptr_array_data, ldb, batch_size);
@@ -258,10 +258,10 @@ inline void apply_gels_batched(const Tensor& A, Tensor& B, Tensor& infos) {
   // cuBLAS batched gels requires input to be the device array of pointers to device single matrices
   Tensor A_ptr_array = get_device_pointers<scalar_t>(A_broadcasted);
   Tensor B_ptr_array = get_device_pointers<scalar_t>(B);
-  auto A_ptr_array_data = reinterpret_cast<scalar_t**>(A_ptr_array.data_ptr());
-  auto B_ptr_array_data = reinterpret_cast<scalar_t**>(B_ptr_array.data_ptr());
+  auto A_ptr_array_data = reinterpret_cast<scalar_t**>(A_ptr_array.mutable_data_ptr());
+  auto B_ptr_array_data = reinterpret_cast<scalar_t**>(B_ptr_array.mutable_data_ptr());
 
-  auto infos_data = infos.data_ptr<int>();
+  auto infos_data = infos.mutable_data_ptr<int>();
   auto handle = at::cuda::getCurrentCUDABlasHandle();
   int info;
 

@@ -107,7 +107,7 @@ static void normal_fill_16_AVX2(float *data,
 
 template<typename RNG>
 void normal_fill_AVX2(const TensorBase &self, const float mean, const float std, RNG generator) {
-  float *data = self.data_ptr<float>();
+  float *data = self.mutable_data_ptr<float>();
   auto size = self.numel();
   std::lock_guard<std::mutex> lock(generator->mutex_);
   for (const auto i : c10::irange(size)) {
@@ -150,7 +150,7 @@ static void normal_fill_16(scalar_t *data, const scalar_t mean, const scalar_t s
 
 template <typename scalar_t, typename RNG>
 void normal_fill(const TensorBase &self, const scalar_t mean, const scalar_t std, RNG generator) {
-  scalar_t *data = self.data_ptr<scalar_t>();
+  scalar_t *data = self.mutable_data_ptr<scalar_t>();
   auto size = self.numel();
   std::lock_guard<std::mutex> lock(generator->mutex_);
   for (const auto i : c10::irange(size)) {

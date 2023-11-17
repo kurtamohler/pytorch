@@ -579,12 +579,10 @@ class TORCH_API TensorBase {
     return this->unsafeGetTensorImpl()->mutable_data();
   }
 
-  // TODO(#97856) Make this return a const pointer. This currently
-  //              returns a non-const pointer because of the large
-  //              number of clients that we still want to audit before
-  //              migrating to mutable_data_ptr().
-  void* data_ptr() const {
-    return mutable_data_ptr();
+  //void* data_ptr() const {
+  //  return mutable_data_ptr();
+  const void* data_ptr() const {
+    return const_data_ptr();
   }
 
   template <typename T>
@@ -598,12 +596,9 @@ class TORCH_API TensorBase {
   //
   // Do not add new uses of this, use const_data_ptr() if possible,
   // mutable_data_ptr() otherwise.
-  //
-  // TODO(#97856) Make this return a const pointer. This is currently
-  //              const because of the vast number of clients that
-  //              rely on this.
   template <typename T>
-  T* data_ptr() const;
+  //T* data_ptr() const;
+  const T* data_ptr() const;
 
   // Purposely not defined here to avoid inlining
   void print() const;
@@ -612,9 +607,9 @@ class TORCH_API TensorBase {
   // dimension.
   template<typename T, size_t N>
   TensorAccessor<T,N> accessor() const& {
-    static_assert(N > 0, "accessor is used for indexing tensor, for scalars use *data_ptr<T>()");
+    static_assert(N > 0, "accessor is used for indexing tensor, for scalars use *mutable_data_ptr<T>()");
     TORCH_CHECK(dim() == N, "TensorAccessor expected ", N, " dims but tensor has ", dim());
-    return TensorAccessor<T,N>(data_ptr<T>(),sizes().data(),strides().data());
+    return TensorAccessor<T,N>(mutable_data_ptr<T>(),sizes().data(),strides().data());
   }
   template<typename T, size_t N>
   TensorAccessor<T,N> accessor() && = delete;
@@ -626,9 +621,9 @@ class TORCH_API TensorBase {
   // as an argument.
   template<typename T, size_t N, template <typename U> class PtrTraits = DefaultPtrTraits, typename index_t = int64_t>
   GenericPackedTensorAccessor<T,N,PtrTraits,index_t> generic_packed_accessor() const& {
-    static_assert(N > 0, "accessor is used for indexing tensor, for scalars use *data_ptr<T>()");
+    static_assert(N > 0, "accessor is used for indexing tensor, for scalars use *mutable_data_ptr<T>()");
     TORCH_CHECK(dim() == N, "TensorAccessor expected ", N, " dims but tensor has ", dim());
-    return GenericPackedTensorAccessor<T,N,PtrTraits,index_t>(static_cast<typename PtrTraits<T>::PtrType>(data_ptr<T>()),sizes().data(),strides().data());
+    return GenericPackedTensorAccessor<T,N,PtrTraits,index_t>(static_cast<typename PtrTraits<T>::PtrType>(mutable_data_ptr<T>()),sizes().data(),strides().data());
   }
   template<typename T, size_t N, template <typename U> class PtrTraits = DefaultPtrTraits, typename index_t = int64_t>
   GenericPackedTensorAccessor<T,N> generic_packed_accessor() && = delete;
