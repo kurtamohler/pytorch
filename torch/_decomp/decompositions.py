@@ -3347,96 +3347,72 @@ def upsample_bilinear2d(
 
     return result
 
+def _replication_pad_single_dim(input: Tensor, dim_from_last: int, pad_before: int, pad_after: int) -> Tensor:
+    r"""Implementation of replication pad which only applies padding to one
+    specific dimension.
+
+    dim_from_last: The dimension to apply the padding to, given as an offset
+        from the last dimension of the input. Specifically,
+        ``dim = -(dim_from_last + 1)``. ``dim_from_last >= 0`` must be true.
+    """
+    # This function creates three sections: a before, a middle, and an after
+    # section. The before and after sections contain the replication padding,
+    # and the middle section contains the original input, with any negative
+    # padding removed from it. Once the sections are created, they are
+    # concatenated together.
+    middle = input
+
+    # Remove negative padding from the middle if needed.
+    if pad_before < 0:
+        my_slice = [Ellipsis, slice(-pad_before, None)] + [slice(None)] * dim_from_last
+        middle = middle[my_slice]
+        pad_before = 0
+
+    if pad_after < 0:
+        my_slice = [Ellipsis, slice(None, pad_after)] + [slice(None)] * dim_from_last
+        middle = middle[my_slice]
+        pad_after = 0
+
+    dim = -1 - dim_from_last
+
+    def create_pad_section(pad, index):
+        repeat_size = [1] * input.dim()
+        repeat_size[dim] = pad
+        repeat_slice = [Ellipsis, [index]] + [slice(None)] * dim_from_last
+        return input[repeat_slice].repeat(repeat_size)
+
+    return torch.cat(
+        [
+            create_pad_section(pad_before, 0),
+            middle,
+            create_pad_section(pad_after, -1),
+        ],
+        dim=dim)
+
+def _replication_padNd(input: Tensor, padding: List[int]) -> Tensor:
+    r"""Implementation of replication pad that works with any number of padding
+    dimensions.
+
+    padding: Before- and after-padding for each dimension, starting with the
+        last dimension of the input.
+        ``(before dim -1, after dim -1, before dim -2, after dim -2, ...)``
+    """
+    ndim = len(padding) // 2
+    result = input
+
+    for dim_from_last in range(ndim):
+        result = _replication_pad_single_dim(
+            result,
+            dim_from_last,
+            padding[2 * dim_from_last],
+            padding[2 * dim_from_last + 1])
+
+    return result
 
 @register_decomposition(aten.replication_pad2d.default)
 @pw_cast_for_opmath
 def replication_pad2d(input: Tensor, padding: List[int]) -> Tensor:
-    pad_left = padding[0]
-    pad_right = padding[1]
-    pad_top = padding[2]
-    pad_bottom = padding[3]
-
-    # If all of the padding values are non-negative, then the following tensors
-    # are all equal to the input. But if any padding values are negative, we
-    # have to remove the appropriate rows and columns from the input.
-    # `input_mid` has all negative padding removed from it. `input_mid_tb` has
-    # negative left and right padding removed from it. `input_mid_lr` has
-    # negative top and bottom padding removed from it.
-    input_mid = input
-    input_mid_tb = input
-    input_mid_lr = input
-
-    if pad_left < 0:
-        input_mid = input_mid[..., -pad_left:]
-        input_mid_tb = input_mid_tb[..., -pad_left:]
-        pad_left = 0
-
-    if pad_right < 0:
-        input_mid = input_mid[..., :pad_right]
-        input_mid_tb = input_mid_tb[..., :pad_right]
-        pad_right = 0
-
-    if pad_top < 0:
-        input_mid = input_mid[..., -pad_top:, :]
-        input_mid_lr = input_mid_lr[..., -pad_top:, :]
-        pad_top = 0
-
-    if pad_bottom < 0:
-        input_mid = input_mid[..., :pad_bottom, :]
-        input_mid_lr = input_mid_lr[..., :pad_bottom, :]
-        pad_bottom = 0
-
-    batch_dims_no_repeat = (1,) * (input.dim() - 2)
-
-    repeat_top_left = batch_dims_no_repeat + (pad_top, pad_left)
-    repeat_top_middle = batch_dims_no_repeat + (pad_top, 1)
-    repeat_top_right = batch_dims_no_repeat + (pad_top, pad_right)
-
-    top_rows = torch.cat(
-        [
-            # top left
-            input[..., [0], :][..., [0]].repeat(repeat_top_left),
-            # top middle
-            input_mid_tb[..., [0], :].repeat(repeat_top_middle),
-            # top right
-            input[..., [0], :][..., [-1]].repeat(repeat_top_right),
-        ],
-        dim=-1,
-    )
-
-    repeat_middle_left = batch_dims_no_repeat + (1, pad_left)
-    repeat_middle_right = batch_dims_no_repeat + (1, pad_right)
-
-    middle_rows = torch.cat(
-        [
-            # middle left
-            input_mid_lr[..., [0]].repeat(repeat_middle_left),
-            # middle middle
-            input_mid,
-            # middle right
-            input_mid_lr[..., [-1]].repeat(repeat_middle_right),
-        ],
-        dim=-1,
-    )
-
-    repeat_bottom_left = batch_dims_no_repeat + (pad_bottom, pad_left)
-    repeat_bottom_middle = batch_dims_no_repeat + (pad_bottom, 1)
-    repeat_bottom_right = batch_dims_no_repeat + (pad_bottom, pad_right)
-
-    bottom_rows = torch.cat(
-        [
-            # bottom left
-            input[..., [-1], :][..., [0]].repeat(repeat_bottom_left),
-            # bottom middle
-            input_mid_tb[..., [-1], :].repeat(repeat_bottom_middle),
-            # bottom right
-            input[..., [-1], :][..., [-1]].repeat(repeat_bottom_right),
-        ],
-        dim=-1,
-    )
-
-    return torch.cat([top_rows, middle_rows, bottom_rows], dim=-2)
-
+    return _replication_padNd(input, padding)
 
 # We should be applying decompositions after all transformations
 @register_decomposition(aten.is_same_size.default)
