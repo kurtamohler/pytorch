@@ -28,6 +28,7 @@
 #include <array>
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 
 namespace at {
 
@@ -38,22 +39,49 @@ using StrideVector = TensorIteratorBase::StrideVector;
 
 namespace {
 
-inline void get_base_ptrs(char** ptrs, ArrayRef<OperandInfo> operands) {
-  std::transform(operands.begin(), operands.end(), ptrs, [](const OperandInfo& op) {
-    return static_cast<char*>(op.data);
-  });
+inline void get_mutable_base_ptrs(char** ptrs, ArrayRef<OperandInfo> operands) {
+  for (const auto arg : c10::irange(operands.size())) {
+    if (!operands[arg].is_const()) {
+      *ptrs++ = static_cast<char*>(operands[arg].mutable_data());
+    }
+  }
+}
+
+inline void get_const_base_ptrs(const char** ptrs, ArrayRef<OperandInfo> operands) {
+  for (const auto arg : c10::irange(operands.size())) {
+    if (operands[arg].is_const()) {
+      *ptrs++ = static_cast<const char*>(operands[arg].const_data());
+    }
+  }
 }
 
 inline void get_strides(int64_t* strides, ArrayRef<OperandInfo> operands, int64_t ndim) {
   for (const auto dim : c10::irange(ndim)) {
     for (const auto arg : c10::irange(operands.size())) {
-      *strides++ = operands[arg].stride_bytes[dim];
+      if (!operands[arg].is_const()) {
+        *strides++ = operands[arg].stride_bytes[dim];
+      }
     }
   }
   // Always at least 2d strides to support 2d for_each loops
   if (ndim < 2) {
     const int64_t ntensors = operands.size();
     std::fill_n(strides, (2 - ndim) * ntensors, 0);
+  }
+}
+
+inline void get_const_strides(int64_t* strides, ArrayRef<OperandInfo> operands, int64_t ndim) {
+  for (const auto dim : c10::irange(ndim)) {
+    for (const auto arg : c10::irange(operands.size())) {
+      if (operands[arg].is_const()) {
+        *strides++ = operands[arg].stride_bytes[dim];
+      }
+    }
+  }
+  // Always at least 2d strides to support 2d for_each loops
+  if (ndim < 2) {
+    const int64_t ninputs = operands.size();
+    std::fill_n(strides, (2 - ndim) * ninputs, 0);
   }
 }
 
@@ -83,6 +111,73 @@ const Tensor& OpaqueOptionalTensorRef::getTensor() const {
   return get()->getTensorRef();
 }
 
+}
+
+void OperandInfo::set_data(std::variant<void*, const void*> data) {
+  struct DataIsConstVisitor {
+    bool operator()(const void*) const {
+      return true;
+    }
+    bool operator()(void*) const {
+      return false;
+    }
+  };
+  is_const_ = std::visit(DataIsConstVisitor(), data);
+  data_ = data;
+}
+
+bool OperandInfo::is_const() const {
+  return is_const_;
+}
+
+void* OperandInfo::mutable_data() const {
+  TORCH_INTERNAL_ASSERT(!is_const());
+  struct GetMutableDataVisitor {
+    void* operator()(void* data) const {
+      return data;
+    }
+    void* operator()(const void* data) const {
+      return nullptr;
+    }
+  };
+  void* res = std::visit(GetMutableDataVisitor(), data_);
+  TORCH_INTERNAL_ASSERT(res != nullptr);
+  return res;
+}
+
+const void* OperandInfo::const_data() const {
+  struct GetConstDataVisitor {
+    const void* operator()(void* data) const {
+      return data;
+    }
+    const void* operator()(const void* data) const {
+      return data;
+    }
+  };
+  const void* res = std::visit(GetConstDataVisitor(), data_);
+  TORCH_INTERNAL_ASSERT(res != nullptr);
+  return res;
+}
+
+void OperandInfo::set_is_const(bool is_const) {
+  struct IsNullptrVisitor {
+    bool operator()(void* data) const {
+      return data == nullptr;
+    }
+    bool operator()(const void* data) const {
+      return data == nullptr;
+    }
+  };
+
+  // Prevent changing `is_const` if data is not a nullptr
+  TORCH_INTERNAL_ASSERT(std::visit(IsNullptrVisitor(), data_));
+
+  is_const_ = is_const;
+  if (is_const) {
+    data_ = static_cast<const void*>(nullptr);
+  } else {
+    data_ = static_cast<void*>(nullptr);
+  }
 }
 
 void OperandInfo::tensor(c10::MaybeOwned<TensorBase> &&tensor) {
@@ -119,6 +214,13 @@ TensorIteratorConfig& TensorIteratorConfig::add_owned_input(const TensorBase& in
   return *this;
 }
 
+TensorIteratorConfig& TensorIteratorConfig::add_owned_const_input(const TensorBase& input) {
+  const_input_indices_.push_back(tensors_.size());
+  tensors_.push_back(c10::MaybeOwned<TensorBase>::owned(c10::in_place, input));
+  num_inputs_++;
+  return *this;
+}
+
 TensorIteratorConfig& TensorIteratorConfig::add_borrowed_output(const TensorBase& output) {
   TORCH_INTERNAL_ASSERT(
       num_inputs_ == 0,
@@ -130,6 +232,13 @@ TensorIteratorConfig& TensorIteratorConfig::add_borrowed_output(const TensorBase
 }
 
 TensorIteratorConfig& TensorIteratorConfig::add_borrowed_input(const TensorBase& input) {
+  tensors_.push_back(c10::MaybeOwned<TensorBase>::borrowed(input));
+  num_inputs_++;
+  return *this;
+}
+
+TensorIteratorConfig& TensorIteratorConfig::add_borrowed_const_input(const TensorBase& input) {
+  const_input_indices_.push_back(tensors_.size());
   tensors_.push_back(c10::MaybeOwned<TensorBase>::borrowed(input));
   num_inputs_++;
   return *this;
@@ -688,8 +797,18 @@ StrideVector TensorIteratorBase::get_dim_strides(int dim) const {
 }
 
 SmallVector<char*, 4> TensorIteratorBase::get_base_ptrs() const {
+  return get_mutable_base_ptrs();
+}
+
+SmallVector<char*, 4> TensorIteratorBase::get_mutable_base_ptrs() const {
   auto ptrs = SmallVector<char*, 4>(ntensors());
-  at::get_base_ptrs(ptrs.data(), operands_);
+  at::get_mutable_base_ptrs(ptrs.data(), operands_);
+  return ptrs;
+}
+
+SmallVector<const char*, 4> TensorIteratorBase::get_const_base_ptrs() const {
+  auto ptrs = SmallVector<const char*, 4>(ntensors());
+  at::get_const_base_ptrs(ptrs.data(), operands_);
   return ptrs;
 }
 
@@ -755,6 +874,19 @@ void TensorIteratorBase::for_each(loop2d_t loop, int64_t grain_size) {
   }
 }
 
+void TensorIteratorBase::for_each(new_loop2d_t loop, int64_t grain_size) {
+  int64_t numel = this->numel();
+  if (numel == 0) {
+    return;
+  } else if (numel < grain_size || at::get_num_threads() == 1) {
+    return serial_for_each(loop, {0, numel});
+  } else {
+    at::parallel_for(0, numel, grain_size, [&](int64_t begin, int64_t end) {
+      serial_for_each(loop, {begin, end});
+    });
+  }
+}
+
 StrideVector TensorIteratorBase::get_strides() const {
   const auto dim = ndim();
   StrideVector strides(std::max(dim, 2) * ntensors());
@@ -773,10 +905,36 @@ void TensorIteratorBase::serial_for_each(loop2d_t loop, Range range) const {
   c10::SmallBuffer<char*, 4> ptrs(ntensors);
   c10::SmallBuffer<int64_t, 8> strides(ntensors * std::max(ndim, 2));
 
-  at::get_base_ptrs(ptrs.data(), operands_);
+  at::get_mutable_base_ptrs(ptrs.data(), operands_);
   at::get_strides(strides.data(), operands_, ndim);
   at::internal::serial_for_each(
       shape_, strides, ptrs.data(), ptrs.size(), loop, range);
+}
+
+void TensorIteratorBase::serial_for_each(new_loop2d_t loop, Range range) const {
+  if (range.size() == 0) {
+    return;
+  }
+
+  const auto noutputs = this->noutputs();
+  const auto ninputs = this->ninputs();
+  const auto ndim = this->ndim();
+
+  c10::SmallBuffer<char*, 4> mutable_ptrs(noutputs);
+  c10::SmallBuffer<int64_t, 8> mutable_strides(noutputs * std::max(ndim, 2));
+  at::get_mutable_base_ptrs(mutable_ptrs.data(), operands_);
+  at::get_strides(mutable_strides.data(), operands_, ndim);
+
+  c10::SmallBuffer<const char*, 4> const_ptrs(ninputs);
+  c10::SmallBuffer<int64_t, 8> const_strides(ninputs * std::max(ndim, 2));
+  at::get_const_base_ptrs(const_ptrs.data(), operands_);
+  at::get_const_strides(const_strides.data(), operands_, ndim);
+
+  at::internal::serial_for_each(
+      shape_,
+      mutable_strides, mutable_ptrs.data(), mutable_ptrs.size(),
+      const_strides, const_ptrs.data(), const_ptrs.size(),
+      loop, range);
 }
 
 bool TensorIteratorBase::is_trivial_1d() const {
@@ -827,7 +985,16 @@ void TensorIteratorBase::cast_outputs() {
 }
 
 void* TensorIteratorBase::data_ptr(int arg) const {
-  return operands_[arg].data;
+  return mutable_data_ptr(arg);
+}
+
+void* TensorIteratorBase::mutable_data_ptr(int arg) const {
+  TORCH_CHECK(!operands_[arg].is_const(), "arg ", arg, " is not mutable");
+  return operands_[arg].mutable_data();
+}
+
+const void* TensorIteratorBase::const_data_ptr(int arg) const {
+  return operands_[arg].const_data();
 }
 
 void TensorIteratorBase::remove_operand(int arg) {
@@ -835,7 +1002,8 @@ void TensorIteratorBase::remove_operand(int arg) {
 }
 
 void TensorIteratorBase::unsafe_replace_operand(int arg, void* data) {
-  operands_[arg].data = data;
+  TORCH_CHECK(!operands_[arg].is_const(), "arg ", arg, " is not mutable");
+  operands_[arg].set_data(data);
 }
 
 void TensorIteratorBase::narrow(int dim, int64_t start, int64_t size) {
@@ -843,7 +1011,11 @@ void TensorIteratorBase::narrow(int dim, int64_t start, int64_t size) {
   shape_[dim] = size;
   view_offsets_[dim] += start;
   for (auto& op : operands_) {
-    op.data = ((char*)op.data) + op.stride_bytes[dim] * start;
+    if (op.is_const()) {
+      op.set_data(((const char*)op.const_data()) + op.stride_bytes[dim] * start);
+    } else {
+      op.set_data(((char*)op.mutable_data()) + op.stride_bytes[dim] * start);
+    }
   }
   if (size == 1 && !is_reduction_) {
     coalesce_dimensions();
@@ -854,7 +1026,11 @@ void TensorIteratorBase::select_all_keeping_dim(int start_dim, IntArrayRef indic
   TORCH_INTERNAL_ASSERT(start_dim <= ndim());
   for (const auto i : c10::irange(start_dim, ndim())) {
     for (auto& op : operands_) {
-      op.data = ((char*)op.data) + op.stride_bytes[i] * indices[i - start_dim];
+      if (op.is_const()) {
+        op.set_data(((const char*)op.const_data()) + op.stride_bytes[i] * indices[i - start_dim]);
+      } else {
+        op.set_data(((char*)op.mutable_data()) + op.stride_bytes[i] * indices[i - start_dim]);
+      }
     }
     shape_[i] = 1;
   }
@@ -1136,6 +1312,7 @@ TensorIterator TensorIterator::reduce_op(TensorBase& out1, TensorBase& out2, con
 }
 
 void TensorIteratorBase::populate_operands(TensorIteratorConfig& config) {
+  int idx = 0;
   for (auto& tensor: config.tensors_) {
     // If *any* of the arguments is a meta tensor, the overall
     // computation is a meta computation (don't do any work,
@@ -1145,8 +1322,14 @@ void TensorIteratorBase::populate_operands(TensorIteratorConfig& config) {
       is_meta_ = true;
     }
     operands_.emplace_back(std::move(tensor));
+    if (idx >= config.num_outputs_ && config.is_tensor_const(idx)) {
+      operands_[idx].set_is_const(true);
+    }
+    idx++;
   }
   num_outputs_ = config.num_outputs_;
+  num_const_inputs_ = config.num_const_inputs();
+  TORCH_CHECK(num_const_inputs_ == 0);
 }
 
 void TensorIteratorBase::mark_outputs() {
@@ -1464,6 +1647,7 @@ FastSetupType TensorIteratorBase::compute_fast_setup_type(const TensorIteratorCo
 TensorIteratorBase::TensorIteratorBase() = default;
 
 void TensorIteratorBase::build(TensorIteratorConfig& config) {
+  std::cout << "in TensorIteratorBase::build" << std::endl;
   // populate some persistent configuration fields
   is_reduction_ = config.is_reduction_;
   enforce_linear_iteration_ = config.enforce_linear_iteration_;
@@ -1518,7 +1702,11 @@ void TensorIteratorBase::build(TensorIteratorConfig& config) {
 
   for (auto& op : operands_) {
     TORCH_INTERNAL_ASSERT(op.tensor_base().defined());
-    op.data = op.tensor_base().data_ptr();
+    if (op.is_const()) {
+      op.set_data(op.tensor_base().const_data_ptr());
+    } else {
+      op.set_data(op.tensor_base().mutable_data_ptr());
+    }
   }
 
   // zero out offsets
@@ -1637,6 +1825,7 @@ const Tensor& TensorIterator::maybe_get_output(int64_t output_idx) {
   return output(output_idx);
 }
 
+// TODO: I think this is where the segfault comes from
 SplitUntil32Bit TensorIteratorBase::with_32bit_indexing() const {
   return SplitUntil32Bit(*this);
 }

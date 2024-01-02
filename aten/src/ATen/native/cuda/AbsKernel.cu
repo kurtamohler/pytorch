@@ -18,6 +18,7 @@ struct AbsFunctor {
 CONSTEXPR_EXCEPT_WIN_CUDA char abs_name[] = "abs_kernel";
 void abs_kernel_cuda(TensorIteratorBase& iter) {
   auto dtype = iter.dtype();
+  std::cout << "in abs_kernel_cuda, dtype: " << dtype << std::endl;
   if (at::isComplexType(dtype)) {
 #if AT_USE_JITERATOR()
     static const auto abs_string = jiterator_stringify(
@@ -36,12 +37,14 @@ void abs_kernel_cuda(TensorIteratorBase& iter) {
     });
 #endif
   } else {
+    std::cout << "dispatching" << std::endl;
     AT_DISPATCH_ALL_TYPES_AND3(
         ScalarType::Half,
         ScalarType::BFloat16,
         ScalarType::Bool,
         iter.dtype(),
         "abs_cuda",
+        // TODO: I think gpu_kernel and with_32bit_indexing are at fault
         [&]() { gpu_kernel(iter, AbsFunctor<scalar_t>()); });
   }
 }
