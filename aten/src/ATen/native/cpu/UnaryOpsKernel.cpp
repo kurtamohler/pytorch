@@ -721,11 +721,12 @@ static void modified_bessel_k1_kernel(TensorIteratorBase& iterator) {
 // TODO: Disable cont. branch to test more risky code
 
 #define IMPLEMENT_ITERATOR_LAMBDA(op)                                              \
-          [&](char** data_, const int64_t* strides, int64_t n) {                   \
-            scalar_t* out_data = reinterpret_cast<scalar_t*>(data_[0]);            \
-            scalar_t* in_data = reinterpret_cast<scalar_t*>(data_[1]);             \
-            int64_t out_stride = strides[0] / sizeof(scalar_t);                    \
-            int64_t in_stride = strides[1] / sizeof(scalar_t);                     \
+          [&](char** mutable_data_, const int64_t* mutable_strides,                \
+              const char** const_data_, const int64_t* const_strides, int64_t n) { \
+            scalar_t* out_data = reinterpret_cast<scalar_t*>(mutable_data_[0]);    \
+            const scalar_t* in_data = reinterpret_cast<const scalar_t*>(const_data_[0]);       \
+            int64_t out_stride = mutable_strides[0] / sizeof(scalar_t);            \
+            int64_t in_stride = const_strides[1] / sizeof(scalar_t);               \
             if (out_stride == 1 && in_stride == 1) {                               \
               vml::v##op(out_data, in_data, n);                                    \
               return;                                                              \
@@ -736,11 +737,11 @@ static void modified_bessel_k1_kernel(TensorIteratorBase& iterator) {
               const int64_t width = std::min(WIDTH, n - i);                        \
               /* If either tensor is contiguous use it, otherwise copy into */     \
               /* a contiguous buffer so compute can still be vectorized */         \
-              scalar_t * in_buffer = in_stride == 1 ? &in_data[i] : &buffer[0];    \
+              const scalar_t * in_buffer = in_stride == 1 ? &in_data[i] : &buffer[0];    \
               scalar_t * out_buffer = out_stride == 1 ? &out_data[i] : &buffer[0]; \
               if (in_stride != 1)                                                  \
                 for (const auto j : c10::irange(width))                            \
-                  in_buffer[j] = in_data[in_stride * (i + j)];                     \
+                  buffer[j] = in_data[in_stride * (i + j)];                     \
               vml::v##op(out_buffer, in_buffer, width);                            \
               if (out_stride != 1)                                                 \
                 for (const auto j : c10::irange(width))                            \

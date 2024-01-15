@@ -873,7 +873,7 @@ StrideVector TensorIteratorBase::get_strides() const {
 }
 
 void TensorIteratorBase::serial_for_each(loop2d_t loop, Range range) const {
-  TORCH_CHECK(
+  TORCH_INTERNAL_ASSERT(
     this->nconsttensors() == 0,
     "At least one const input was added to this TensorIterator, but the loop ",
     "function that was given only accesses mutable inputs. You must either ",
@@ -1138,13 +1138,13 @@ void TensorIteratorBase::build_borrowing_binary_op(
 void TensorIteratorBase::build_unary_float_op(const TensorBase& out, const TensorBase& a) {
   build(UNARY_FLOAT_OP_CONFIG()
       .add_owned_output(out)
-      .add_owned_input(a));
+      .add_owned_const_input(a));
 }
 
 void TensorIteratorBase::build_borrowing_unary_float_op(const TensorBase& out, const TensorBase& a) {
   build(UNARY_FLOAT_OP_CONFIG()
       .add_output(out)
-      .add_input(a));
+      .add_const_input(a));
 }
 
 // This cannot be a function because TensorIteratorConfig is not
@@ -1159,19 +1159,19 @@ void TensorIteratorBase::build_borrowing_unary_float_op(const TensorBase& out, c
 void TensorIteratorBase::build_unary_op(const TensorBase& out, const TensorBase& a) {
   build(UNARY_OP_CONFIG()
       .add_owned_output(out)
-      .add_owned_input(a));
+      .add_owned_const_input(a));
 }
 
 void TensorIteratorBase::build_borrowing_unary_op(const TensorBase& out, const TensorBase& a) {
   build(UNARY_OP_CONFIG()
       .add_output(out)
-      .add_input(a));
+      .add_const_input(a));
 }
 
 void TensorIteratorBase::build_output_borrowing_argument_owning_unary_op(const TensorBase& out, const TensorBase& a) {
   build(UNARY_OP_CONFIG()
       .add_output(out)
-      .add_owned_input(a));
+      .add_owned_const_input(a));
 }
 
 // Helper to construct a unary op that forcibly promotes output to boolean.
@@ -1183,7 +1183,7 @@ void TensorIteratorBase::build_borrowing_unary_force_boolean_op(const TensorBase
       .declare_static_dtype(at::kBool)
       .declare_static_device(a.device())
       .add_output(out)
-      .add_input(a));
+      .add_const_input(a));
 }
 
 TensorIterator TensorIterator::binary_op(TensorBase& out, const TensorBase& a, const TensorBase& b) {

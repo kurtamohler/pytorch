@@ -51,9 +51,25 @@ dereference_impl(char* C10_RESTRICT data[], const int64_t* strides, int64_t i,
           data[INDEX] + i * strides[INDEX])...);
 }
 
+template <typename traits, std::size_t... INDEX>
+typename traits::ArgsTuple
+dereference_impl(const char* C10_RESTRICT data[], const int64_t* strides, int64_t i,
+                 std::index_sequence<INDEX...>) {
+  return std::make_tuple(
+      c10::load<typename traits::template arg<INDEX>::type>(
+          data[INDEX] + i * strides[INDEX])...);
+}
+
 template <typename traits>
 typename traits::ArgsTuple
 dereference(char* C10_RESTRICT data[], const int64_t* strides, int64_t i) {
+  using Indices = std::make_index_sequence<traits::arity>;
+  return dereference_impl<traits>(data, strides, i, Indices{});
+}
+
+template <typename traits>
+typename traits::ArgsTuple
+dereference(const char* C10_RESTRICT data[], const int64_t* strides, int64_t i) {
   using Indices = std::make_index_sequence<traits::arity>;
   return dereference_impl<traits>(data, strides, i, Indices{});
 }
@@ -73,9 +89,31 @@ dereference_vec_impl(char* C10_RESTRICT data[],
       Vec::loadu(data[INDEX] + i * sizeof(scalar_t))...);
 }
 
+template <typename traits, std::size_t... INDEX>
+typename traits::ArgsTuple
+dereference_vec_impl(const char* C10_RESTRICT data[],
+                     const typename traits::result_type& opt_scalar,
+                     size_t S,
+                     int64_t i,
+                     std::index_sequence<INDEX...>) {
+  using Vec = typename traits::result_type;
+  using scalar_t = typename Vec::value_type;
+  return std::make_tuple(
+      S == INDEX + 1 ?
+      opt_scalar :
+      Vec::loadu(data[INDEX] + i * sizeof(scalar_t))...);
+}
+
 template <typename traits>
 typename traits::ArgsTuple
 dereference_vec(char* C10_RESTRICT data[], const typename traits::result_type& opt_scalar, size_t S, int64_t i) {
+  using Indices = std::make_index_sequence<traits::arity>;
+  return dereference_vec_impl<traits>(data, opt_scalar, S, i, Indices{});
+}
+
+template <typename traits>
+typename traits::ArgsTuple
+dereference_vec(const char* C10_RESTRICT data[], const typename traits::result_type& opt_scalar, size_t S, int64_t i) {
   using Indices = std::make_index_sequence<traits::arity>;
   return dereference_vec_impl<traits>(data, opt_scalar, S, i, Indices{});
 }
@@ -108,6 +146,35 @@ execute_op(char* C10_RESTRICT data[], const int64_t* strides, int64_t i, int64_t
   }
 }
 
+template <typename func_t,
+    typename std::enable_if<!std::is_void<typename function_traits<func_t>::result_type>::value>::type* = nullptr>
+static inline void
+execute_op(char* C10_RESTRICT mutable_data[], const int64_t* mutable_strides, const char* C10_RESTRICT const_data[], const int64_t* const_strides, int64_t i, int64_t n, func_t&& op) {
+  using traits = function_traits<func_t>;
+  using result_type = typename traits::result_type;
+  for (; i < n; i++) {
+    result_type* out_ptr = (result_type*)(mutable_data[0] + i * mutable_strides[0]);
+    *out_ptr = c10::guts::apply(std::forward<func_t>(op), dereference<traits>(
+        &const_data[0],
+        &const_strides[0],
+        i));
+  }
+}
+
+template <typename func_t,
+    typename std::enable_if<std::is_void<typename function_traits<func_t>::result_type>::value>::type* = nullptr>
+static inline void
+execute_op(char* C10_RESTRICT mutable_data[], const int64_t* mutable_strides, const char* C10_RESTRICT const_data[], const int64_t* const_strides, int64_t i, int64_t n, func_t&& op) {
+  using traits = function_traits<func_t>;
+  for (; i < n; i++) {
+    // TODO: Need to somehow add the mutable_data here I guess?
+    c10::guts::apply(std::forward<func_t>(op), dereference<traits>(
+        &const_data[0],
+        &const_strides[0],
+        i));
+  }
+}
+
 // Basic loop operation (one output, N inputs). May be auto-vectorized
 // by the compiler. Supports inputs and outputs of different types.
 template <typename func_t>
@@ -124,6 +191,25 @@ basic_loop(char* C10_RESTRICT data[], const int64_t* strides_, int64_t i, int64_
   }
 
   execute_op(data, strides, i, n, std::forward<func_t>(op));
+}
+
+// Basic loop operation (one output, N inputs). May be auto-vectorized
+// by the compiler. Supports inputs and outputs of different types.
+// All inputs must be const.
+template <typename func_t>
+static inline void
+basic_loop(char* C10_RESTRICT mutable_data[], const int64_t* mutable_strides_, const char* C10_RESTRICT const_data[], const int64_t* const_strides_, int64_t i, int64_t n, func_t&& op) {
+  using traits = function_traits<func_t>;
+  constexpr int ninputs = traits::arity;
+
+  // Copying strides to temporary array helps auto vectorization in older GCC
+  // versions.
+  int64_t const_strides[ninputs];
+  for (const auto arg : c10::irange(ninputs)) {
+    const_strides[arg] = const_strides_[arg];
+  }
+
+  execute_op(mutable_data, mutable_strides_, const_data, const_strides, i, n, std::forward<func_t>(op));
 }
 
 // the recursive variadic template for iterating over the returned tuple
@@ -226,6 +312,50 @@ vectorized_loop(char** C10_RESTRICT data_, int64_t n, int64_t S, func_t&& op, ve
   }
 }
 
+// Explicitly vectorized loop implementation. All inputs and outputs must be
+// the same type and contiguous with one exception: a single input may be
+// a scalar (stride 0). It's position is indicated by the argument `S`. If `S`
+// is 0, then there are no scalar inputs.
+template <typename func_t, typename vec_func_t>
+static inline void
+vectorized_loop(char** C10_RESTRICT mutable_data_, const char** C10_RESTRICT const_data_, int64_t n, int64_t S, func_t&& op, vec_func_t&& vop) {
+  using traits = function_traits<vec_func_t>;
+  using scalar_t = typename function_traits<func_t>::result_type;
+  using Vec = Vectorized<scalar_t>;
+  constexpr int ntensors = traits::arity + 1;
+
+  char* C10_RESTRICT mutable_data[1];
+  const char* C10_RESTRICT const_data[ntensors - 1];
+  for (const auto arg : c10::irange(1)) {
+    mutable_data[arg] = mutable_data_[arg];
+  }
+  for (const auto arg : c10::irange(ntensors - 1)) {
+    const_data[arg] = const_data_[arg];
+  }
+
+  Vec opt_scalar = Vec(S > 0 ? *(const scalar_t*)const_data[S - 1] : scalar_t(0));
+  int64_t i = 0;
+  for (; i <= n - 2 * Vec::size(); i += 2 * Vec::size()) {
+    auto args1 = dereference_vec<traits>(&const_data[0], opt_scalar, S, i);
+    auto args2 = dereference_vec<traits>(&const_data[0], opt_scalar, S, i + Vec::size());
+    auto out1 = c10::guts::apply(std::forward<vec_func_t>(vop), std::move(args1));
+    auto out2 = c10::guts::apply(std::forward<vec_func_t>(vop), std::move(args2));
+    out1.store(mutable_data[0] + i * sizeof(scalar_t));
+    out2.store(mutable_data[0] + (i + Vec::size()) * sizeof(scalar_t));
+  }
+  if (i < n) {
+    int64_t mutable_strides[1];
+    for (const auto arg : c10::irange(1)) {
+      mutable_strides[arg] = (S > 0 && arg == S) ? 0 : sizeof(scalar_t);
+    }
+    int64_t const_strides[ntensors - 1];
+    for (const auto arg : c10::irange(ntensors - 1)) {
+      const_strides[arg] = (S > 0 && arg == S) ? 0 : sizeof(scalar_t);
+    }
+    basic_loop(mutable_data, mutable_strides, const_data, const_strides, i, n, std::forward<func_t>(op));
+  }
+}
+
 
 template <typename traits, typename cb_t>
 static inline void unroll_contiguous_scalar_checks(
@@ -295,9 +425,79 @@ struct VectorizedLoop2d {
 };
 
 template <typename op_t, typename vop_t>
+struct VectorizedLoop2dWithConst {
+  op_t op;
+  vop_t vop;
+
+  using traits = function_traits<op_t>;
+  static constexpr int ntensors = traits::arity + 1;
+  using data_t = std::array<char*, 1>;
+  using const_data_t = std::array<const char*, ntensors - 1>;
+
+  VectorizedLoop2dWithConst(const op_t &op, vop_t vop):
+    op(op), vop(std::move(vop)) {}
+
+  static void advance(data_t &data, const int64_t *outer_strides) {
+    for (const auto arg : c10::irange(data.size())) {
+      data[arg] += outer_strides[arg];
+    }
+  }
+
+  static void advance(const_data_t &data, const int64_t *outer_strides) {
+    for (const auto arg : c10::irange(data.size())) {
+      data[arg] += outer_strides[arg];
+    }
+  }
+
+  void operator()(char** mutable_base, const int64_t* mutable_strides, const char** const_base, const int64_t* const_strides, int64_t size0, int64_t size1) {
+    // KURT: Once I get this working, get rid of this mutable_data array. It
+    // isn't actually needed since it will always only have the one element--the
+    // output.
+    data_t mutable_data;
+    std::copy_n(mutable_base, 1, mutable_data.data());
+    const_data_t const_data;
+    std::copy_n(const_base, ntensors - 1, const_data.data());
+    const int64_t *outer_mutable_strides = &mutable_strides[1];
+    const int64_t *outer_const_strides = &const_strides[ntensors - 1];
+
+    if (is_contiguous<traits>(mutable_strides)) {
+      for (const auto i C10_UNUSED : c10::irange(size1)) {
+        vectorized_loop(mutable_data.data(), const_data.data(), size0, 0, op, vop);
+        advance(mutable_data, outer_mutable_strides);
+        advance(const_data, outer_const_strides);
+      }
+    } else {
+      using Indices = std::make_index_sequence<traits::arity>;
+      unroll_contiguous_scalar_checks<traits>(const_strides, Indices{}, [&](size_t idx) {
+        if (idx) {
+          for (const auto i C10_UNUSED : c10::irange(size1)) {
+            vectorized_loop(mutable_data.data(), const_data.data(), size0, idx, op, vop);
+            advance(mutable_data, outer_mutable_strides);
+            advance(const_data, outer_const_strides);
+          }
+        } else {
+          for (const auto i C10_UNUSED : c10::irange(size1)) {
+            basic_loop(mutable_data.data(), mutable_strides, const_data.data(), const_strides, 0, size0, op);
+            advance(mutable_data, outer_mutable_strides);
+            advance(const_data, outer_const_strides);
+          }
+        }
+      });
+    }
+  }
+};
+
+
+template <typename op_t, typename vop_t>
 VectorizedLoop2d<op_t, vop_t> make_vectorized_loop2d(
     const op_t &op, const vop_t &vop) {
   return VectorizedLoop2d<op_t, vop_t>(op, vop);
+}
+
+template <typename op_t, typename vop_t>
+VectorizedLoop2dWithConst<op_t, vop_t> make_vectorized_loop2d_with_const(
+    const op_t &op, const vop_t &vop) {
+  return VectorizedLoop2dWithConst<op_t, vop_t>(op, vop);
 }
 
 template <typename func_t>
@@ -309,11 +509,24 @@ void cpu_kernel(TensorIteratorBase& iter, func_t&& op, int64_t grain_size = at::
   // dynamic casting not currently supported on CPU
   TORCH_INTERNAL_ASSERT(!needs_dynamic_casting<func_t>::check(iter));
 
-  iter.for_each([&](char** data, const int64_t* strides, int64_t n) {
-    // basic loop can handle 1d slices with arbitrary strides, and 1d slices is all that
-    // iter.for_each is ever sending to the loop lambda
+  // Forbid mixing const and mutable inputs for now. If we have reason to
+  // support it in the future, then we can try to do so
+  TORCH_INTERNAL_ASSERT((iter.nconsttensors() == 0) || (iter.nconsttensors() == iter.ninputs()));
+
+  if (iter.nconsttensors() > 0) {
+    iter.for_each([&](char** mutable_data, const int64_t* mutable_strides, const char** const_data, const int64_t* const_strides, int64_t n) {
+      // basic loop can handle 1d slices with arbitrary strides, and 1d slices is all that
+      // iter.for_each is ever sending to the loop lambda
+      basic_loop(mutable_data, mutable_strides, const_data, const_strides, 0, n, std::forward<func_t>(op));
+    }, grain_size);
+
+  } else {
+    iter.for_each([&](char** data, const int64_t* strides, int64_t n) {
+      // basic loop can handle 1d slices with arbitrary strides, and 1d slices is all that
+      // iter.for_each is ever sending to the loop lambda
       basic_loop(data, strides, 0, n, std::forward<func_t>(op));
-  }, grain_size);
+    }, grain_size);
+  }
   iter.cast_outputs();
 }
 
@@ -330,6 +543,8 @@ template <typename func_t>
 void cpu_kernel_multiple_outputs(TensorIteratorBase& iter, func_t&& op, int64_t grain_size = at::internal::GRAIN_SIZE) {
   using traits = function_traits<func_t>;
   TORCH_INTERNAL_ASSERT(iter.ninputs() == traits::arity);
+
+  TORCH_INTERNAL_ASSERT(iter.nconsttensors() == 0);
 
   iter.for_each([&](char** data, const int64_t* strides, int64_t n) {
     multiple_outputs_loop(data, strides, 0, n, std::forward<func_t>(op));
@@ -349,7 +564,15 @@ void cpu_kernel_vec(TensorIteratorBase& iter, func_t&& op, vec_func_t&& vop, int
     TORCH_INTERNAL_ASSERT(!needs_dynamic_casting<func_t>::check(iter));
   }
 
-  iter.for_each(make_vectorized_loop2d(op, vop), grain_size);
+  // Forbid mixing const and mutable inputs for now. If we have reason to
+  // support it in the future, then we can try to do so
+  TORCH_INTERNAL_ASSERT((iter.nconsttensors() == 0) || (iter.nconsttensors() == iter.ninputs()));
+
+  if (iter.nconsttensors() == 0) {
+    iter.for_each(make_vectorized_loop2d(op, vop), grain_size);
+  } else {
+    iter.for_each(make_vectorized_loop2d_with_const(op, vop), grain_size);
+  }
   iter.cast_outputs();
 }
 
@@ -362,9 +585,19 @@ void cpu_serial_kernel(TensorIteratorBase& iter, func_t&& op, const Range& range
   // dynamic casting not currently supported on CPU
   TORCH_INTERNAL_ASSERT(!needs_dynamic_casting<func_t>::check(iter));
 
-  iter.serial_for_each([&](char** data, const int64_t* strides, int64_t n) {
-    basic_loop(data, strides, 0, n, std::forward<func_t>(op));
-  }, range);
+  // Forbid mixing const and mutable inputs for now. If we have reason to
+  // support it in the future, then we can try to do so
+  TORCH_INTERNAL_ASSERT((iter.nconsttensors() == 0) || (iter.nconsttensors() == iter.ninputs()));
+
+  if (iter.nconsttensors() == 0) {
+    iter.serial_for_each([&](char** data, const int64_t* strides, int64_t n) {
+      basic_loop(data, strides, 0, n, std::forward<func_t>(op));
+    }, range);
+  } else {
+    iter.serial_for_each([&](char** mutable_data, const int64_t* mutable_strides, const char** const_data, const int64_t* const_strides, int64_t n) {
+      basic_loop(mutable_data, mutable_strides, const_data, const_strides, 0, n, std::forward<func_t>(op));
+    }, range);
+  }
   iter.cast_outputs();
 }
 
@@ -382,7 +615,15 @@ void cpu_serial_kernel_vec(TensorIteratorBase& iter, func_t&& op, vec_func_t&& v
   // dynamic casting not currently supported on CPU
   TORCH_INTERNAL_ASSERT(!needs_dynamic_casting<func_t>::check(iter));
 
-  iter.serial_for_each(make_vectorized_loop2d(op, vop), range);
+  // Forbid mixing const and mutable inputs for now. If we have reason to
+  // support it in the future, then we can try to do so
+  TORCH_INTERNAL_ASSERT((iter.nconsttensors() == 0) || (iter.nconsttensors() == iter.ninputs()));
+
+  if (iter.nconsttensors() == 0) {
+    iter.serial_for_each(make_vectorized_loop2d(op, vop), range);
+  } else {
+    iter.serial_for_each(make_vectorized_loop2d_with_const(op, vop), range);
+  }
   iter.cast_outputs();
 }
 
