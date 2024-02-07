@@ -10696,7 +10696,7 @@ op_db: List[OpInfo] = [
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
            # TODO: Avoid COW materialize
-           supports_cow_input_no_materialize=False,
+           #supports_cow_input_no_materialize=False,
            skips=(
                # Reference: https://github.com/pytorch/pytorch/issues/50747
                DecorateInfo(unittest.skip("Skipped!"), 'TestCommon', 'test_variant_consistency_eager',
@@ -11022,7 +11022,7 @@ op_db: List[OpInfo] = [
            supports_gradgrad=False,
            assert_autodiffed=False,
            # TODO: Avoid COW materialize
-           supports_cow_input_no_materialize=False,
+           #supports_cow_input_no_materialize=False,
            sample_inputs_func=sample_inputs_cdist),
     UnaryUfuncInfo('ceil',
                    ref=np.ceil,
@@ -12333,7 +12333,7 @@ op_db: List[OpInfo] = [
            # https://github.com/pytorch/pytorch/issues/66357
            check_batched_forward_grad=False,
            # TODO: Avoid COW materialize
-           supports_cow_input_no_materialize=False,
+           #supports_cow_input_no_materialize=False,
            skips=(
                # mexp does not support bf16 and fp16
                DecorateInfo(unittest.skip('Skipped!'), 'TestInductorOpInfo', 'test_comprehensive',
@@ -12742,7 +12742,7 @@ op_db: List[OpInfo] = [
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
            # TODO: Avoid COW materialize
-           supports_cow_input_no_materialize=False,
+           #supports_cow_input_no_materialize=False,
            supports_out=True),
     OpInfo('softmax',
            aliases=('special.softmax', 'nn.functional.softmax',),
@@ -12801,7 +12801,7 @@ op_db: List[OpInfo] = [
         supports_forward_ad=True,
         supports_fwgrad_bwgrad=True,
         # TODO: Avoid COW materialize
-        supports_cow_input_no_materialize=False,
+        #supports_cow_input_no_materialize=False,
         decorators=(
             DecorateInfo(
                 toleranceOverride({torch.float32: tol(atol=1e-5, rtol=1e-3)}),
@@ -12926,7 +12926,7 @@ op_db: List[OpInfo] = [
            assert_jit_shape_analysis=True,
            supports_fwgrad_bwgrad=True,
            # TODO: Avoid COW materialize
-           supports_cow_input_no_materialize=False,
+           #supports_cow_input_no_materialize=False,
            sample_inputs_func=sample_inputs_native_layer_norm,
            error_inputs_func=error_inputs_native_layer_norm,
            skips=(
@@ -12946,6 +12946,11 @@ op_db: List[OpInfo] = [
            supports_fwgrad_bwgrad=True,
            assert_jit_shape_analysis=True,
            # TODO: Avoid COW materialize
+           # KURT: This op takes a couple optional arguments called running_mean
+           # and running_var. If these are given, they are mutated, which means
+           # that they are expected to materialize, while the other args are
+           # expected not to materialize. Is there a way I can give that
+           # information to the COW materialization test?
            supports_cow_input_no_materialize=False,
            sample_inputs_func=sample_inputs_native_batch_norm,
            skips=(
@@ -13140,7 +13145,7 @@ op_db: List[OpInfo] = [
         supports_fwgrad_bwgrad=True,
         supports_out=False,
         # TODO: Avoid COW materialize
-        supports_cow_input_no_materialize=False,
+        #supports_cow_input_no_materialize=False,
         dtypes=floating_types_and(torch.half, torch.bfloat16),
         gradcheck_nondet_tol=GRADCHECK_NONDET_TOL,
         sample_inputs_func=sample_inputs_binary_cross_entropy_with_logits,
@@ -13181,8 +13186,6 @@ op_db: List[OpInfo] = [
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
            assert_jit_shape_analysis=True,
-           # TODO: Avoid COW materialize
-           supports_cow_input_no_materialize=False,
            gradcheck_nondet_tol=GRADCHECK_NONDET_TOL,
            decorators=(
                DecorateInfo(
@@ -13229,8 +13232,6 @@ op_db: List[OpInfo] = [
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
            assert_jit_shape_analysis=True,
-           # TODO: Avoid COW materialize
-           supports_cow_input_no_materialize=False,
            gradcheck_nondet_tol=GRADCHECK_NONDET_TOL,
            decorators=[
                DecorateInfo(
@@ -13279,8 +13280,6 @@ op_db: List[OpInfo] = [
            assert_jit_shape_analysis=True,
            # Runs very slowly on slow-gradcheck - alternatively reduce input sizes
            gradcheck_fast_mode=True,
-           # TODO: Avoid COW materialize
-           supports_cow_input_no_materialize=False,
            gradcheck_nondet_tol=GRADCHECK_NONDET_TOL,
            decorators=[
                DecorateInfo(
@@ -13339,8 +13338,6 @@ op_db: List[OpInfo] = [
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
            assert_jit_shape_analysis=True,
-           # TODO: Avoid COW materialize
-           supports_cow_input_no_materialize=False,
            gradcheck_nondet_tol=GRADCHECK_NONDET_TOL,
            decorators=(
                DecorateInfo(
@@ -13382,7 +13379,7 @@ op_db: List[OpInfo] = [
            supports_fwgrad_bwgrad=True,
            assert_jit_shape_analysis=True,
            # TODO: Avoid COW materialize
-           supports_cow_input_no_materialize=False,
+           #supports_cow_input_no_materialize=False,
            decorators=(
                DecorateInfo(
                    toleranceOverride({torch.chalf: tol(atol=6e-2, rtol=5e-2)}),
@@ -13415,7 +13412,7 @@ op_db: List[OpInfo] = [
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
            # TODO: Avoid COW materialize
-           supports_cow_input_no_materialize=False,
+           #supports_cow_input_no_materialize=False,
            decorators=(
                DecorateInfo(
                    toleranceOverride({torch.chalf: tol(atol=6e-2, rtol=5e-2)}),
@@ -13459,7 +13456,7 @@ op_db: List[OpInfo] = [
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
            # TODO: Avoid COW materialize
-           supports_cow_input_no_materialize=False,
+           #supports_cow_input_no_materialize=False,
            error_inputs_func=error_inputs_group_norm,
            decorators=[
                # RuntimeError: Cannot insert a Tensor that requires grad as a constant.
@@ -13476,7 +13473,7 @@ op_db: List[OpInfo] = [
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
            # TODO: Avoid COW materialize
-           supports_cow_input_no_materialize=False,
+           #supports_cow_input_no_materialize=False,
            decorators=[
                # RuntimeError: Cannot insert a Tensor that requires grad as a constant.
                # Consider making it a parameter or input, or detaching the gradient
@@ -13497,7 +13494,7 @@ op_db: List[OpInfo] = [
            supports_fwgrad_bwgrad=True,
            assert_jit_shape_analysis=True,
            # TODO: Avoid COW materialize
-           supports_cow_input_no_materialize=False,
+           #supports_cow_input_no_materialize=False,
            decorators=[
                DecorateInfo(
                    toleranceOverride({torch.float32: tol(atol=1e-05, rtol=1e-03)}),
@@ -14592,7 +14589,7 @@ op_db: List[OpInfo] = [
         supports_fwgrad_bwgrad=True,
         supports_gradgrad=True,
         # TODO: Avoid COW materialize
-        supports_cow_input_no_materialize=False,
+        #supports_cow_input_no_materialize=False,
         # autodiff_nonfusible_nodes=["aten::log_sigmoid"],
         decorators=[
             DecorateInfo(
