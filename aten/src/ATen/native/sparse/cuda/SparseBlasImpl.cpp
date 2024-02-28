@@ -1454,6 +1454,7 @@ void sampled_addmm_out_sparse_csr(
         // ** On entry to cusparseSDDMM_bufferSize(): batched SDDMM is not supported
         // So we need to resort to the for loop
         for (const auto i : c10::irange(batchCount(A))) {
+          // KURT: Need const
           auto descA = at::cuda::sparse::CuSparseDnMatDescriptor(*A_, /*batch_offset=*/i);
           auto descB = at::cuda::sparse::CuSparseDnMatDescriptor(*B_, /*batch_offset=*/i);
           auto descC = at::cuda::sparse::CuSparseSpMatCsrDescriptor(C, /*batch_offset=*/i);

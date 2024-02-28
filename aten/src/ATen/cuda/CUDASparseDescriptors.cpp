@@ -79,6 +79,7 @@ CuSparseDnMatDescriptor::CuSparseDnMatDescriptor(const Tensor& input, int64_t ba
 #endif
 
   auto batch_stride = ndim > 2 && batch_offset >= 0 ? input_strides[ndim - 3] : 0;
+  // KURT: Make conditionally const
   void* values_ptr = static_cast<char*>(input.data_ptr()) +
       batch_offset * batch_stride * input.itemsize();
 
@@ -86,6 +87,7 @@ CuSparseDnMatDescriptor::CuSparseDnMatDescriptor(const Tensor& input, int64_t ba
   check_supported_cuda_type(value_type);
 
   cusparseDnMatDescr_t raw_descriptor;
+  // KURT: cusparseCreateConstDnMat exists
   TORCH_CUDASPARSE_CHECK(cusparseCreateDnMat(
       &raw_descriptor,
       rows,
