@@ -730,9 +730,9 @@ std::tuple<Tensor, Tensor> _prelu_kernel_backward(const Tensor& grad_out, const 
   auto iter = TensorIteratorConfig()
     .add_output(grad_self)
     .add_output(grad_weight)
-    .add_input(self)
-    .add_input(weight)
-    .add_input(grad_out)
+    .add_const_input(self)
+    .add_const_input(weight)
+    .add_const_input(grad_out)
     .build();
   prelu_backward_stub(iter.device_type(), iter);
   return {grad_self, grad_weight};
