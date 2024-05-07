@@ -234,11 +234,13 @@ void THPStorage_writeFileRaw(
     // We are using a mutable pointer here because we're ultimately
     // calling into a Python API that requires that, even though it
     // won't mutate the data.
-    data = static_cast<uint8_t*>(self->mutable_data());
+    // TODO: Find out if we need cowsim here. Probably do
+    data = static_cast<uint8_t*>(self->mutable_data(0));
   } else {
     // Here we use a tensor.to() to impl D2H for all non-CPU device.
     auto device_tensor = at::from_blob(
-        self->mutable_data(),
+        // TODO: Find out if we need cowsim here. Probably do
+        self->mutable_data(0),
         {static_cast<int64_t>(size_bytes)},
         {1},
         nullptr,
@@ -346,7 +348,8 @@ c10::intrusive_ptr<c10::StorageImpl> THPStorage_readFileRaw(
 
   uint8_t* data{};
   if (storage->device_type() == at::kCPU) {
-    data = static_cast<uint8_t*>(storage->mutable_data());
+    // TODO: Find out if we need cowsim here. Probably do
+    data = static_cast<uint8_t*>(storage->mutable_data(0));
   } else {
     // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
     cpu_data = std::unique_ptr<char[]>(new char[nbytes]);
@@ -389,7 +392,8 @@ c10::intrusive_ptr<c10::StorageImpl> THPStorage_readFileRaw(
         {static_cast<int64_t>(nbytes)},
         at::device(at::kCPU).dtype(c10::kByte));
     auto device_tensor = at::from_blob(
-        storage->mutable_data(),
+        // TODO: Find out if we need cowsim here. Probably do
+        storage->mutable_data(0),
         {static_cast<int64_t>(nbytes)},
         {1},
         nullptr,

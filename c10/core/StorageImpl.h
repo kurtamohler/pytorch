@@ -11,8 +11,10 @@
 #include <c10/util/Exception.h>
 #include <c10/util/UniqueVoidPtr.h>
 #include <c10/util/intrusive_ptr.h>
+#include <c10/core/impl/COWSim.h>
 #include <cstddef>
 #include <utility>
+#include <iostream>
 
 namespace c10 {
 
@@ -122,11 +124,25 @@ struct C10_API StorageImpl : public c10::intrusive_ptr_target {
     return resizable_;
   }
 
-  const at::DataPtr& data_ptr() const {
+  void maybe_enable_cowsim() {
+    std::cout << "in maybe_enabled_cowsim" << std::endl;
+    if (cowsim_checker_ != nullptr){
+      std::cout << "  enabling" << std::endl;
+      cowsim_checker_ = make_intrusive<impl::cowsim::COWSimChecker>();
+      if (cowsim_checker_ == nullptr) {
+        std::cout << "  why?" << std::endl;
+      }
+    }
+  }
+
+  const at::DataPtr& data_ptr(impl::cowsim::COWSimAliasGroupID group_id) const {
+    if (C10_UNLIKELY(cowsim_checker_ != nullptr)) {
+      cowsim_checker_->check_on_read(group_id);
+    }
     return data_ptr_;
   }
 
-  at::DataPtr& mutable_data_ptr() {
+  at::DataPtr& mutable_data_ptr(impl::cowsim::COWSimAliasGroupID group_id) {
     if (C10_UNLIKELY(has_data_ptr_check_)) {
       if (throw_on_mutable_data_ptr_) {
         throwNullDataPtrError();
@@ -136,6 +152,13 @@ struct C10_API StorageImpl : public c10::intrusive_ptr_target {
       }
       maybe_materialize_cow();
     }
+    if (C10_UNLIKELY(cowsim_checker_ != nullptr)) {
+      cowsim_checker_->check_on_write(group_id);
+    }
+    return data_ptr_;
+  }
+  // Returns the data_ptr. Bypasses all checks.
+  const at::DataPtr& _data_ptr_no_checks() const {
     return data_ptr_;
   }
 
@@ -149,6 +172,7 @@ struct C10_API StorageImpl : public c10::intrusive_ptr_target {
     // We need to materialize the old COW DataPtr because it is
     // being returned as mutable.
     maybe_materialize_cow();
+    // TODO: Need to do something here for COW sim
     return set_data_ptr_no_materialize_cow(std::move(data_ptr));
   }
 
@@ -157,11 +181,14 @@ struct C10_API StorageImpl : public c10::intrusive_ptr_target {
     refresh_has_data_ptr_check();
   }
 
-  const void* data() const {
+  const void* data(impl::cowsim::COWSimAliasGroupID group_id) const {
+    if (C10_UNLIKELY(cowsim_checker_ != nullptr)) {
+      cowsim_checker_->check_on_read(group_id);
+    }
     return data_ptr_.get();
   }
 
-  void* mutable_data() {
+  void* mutable_data(impl::cowsim::COWSimAliasGroupID group_id) {
     if (C10_UNLIKELY(has_data_ptr_check_)) {
       if (throw_on_mutable_data_ptr_) {
         throwNullDataPtrError();
@@ -170,6 +197,9 @@ struct C10_API StorageImpl : public c10::intrusive_ptr_target {
         warnDeprecatedDataPtr();
       }
       maybe_materialize_cow();
+    }
+    if (C10_UNLIKELY(cowsim_checker_ != nullptr)) {
+      cowsim_checker_->check_on_write(group_id);
     }
     return data_ptr_.mutable_get();
   }
@@ -305,6 +335,7 @@ struct C10_API StorageImpl : public c10::intrusive_ptr_target {
   bool warn_deprecated_on_mutable_data_ptr_ = false;
   Allocator* allocator_;
   impl::PyObjectSlot pyobj_slot_;
+  c10::intrusive_ptr<impl::cowsim::COWSimChecker> cowsim_checker_;
 };
 
 // Declare StorageImpl create function pointer types.

@@ -94,7 +94,8 @@ void resize_bytes_cpu(StorageImpl* storage, size_t size_bytes) {
   if (size_bytes != 0) {
     new_data = storage->allocator()->allocate(size_bytes);
   }
-  const at::DataPtr& old_data = storage->data_ptr();
+  // TODO: Figure out what to do here
+  const at::DataPtr& old_data = storage->data_ptr(0);
   const auto old_capacity = storage->nbytes();
   const auto copy_capacity = std::min(size_bytes, old_capacity);
   if (old_data != nullptr && copy_capacity > 0) {

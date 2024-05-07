@@ -5257,6 +5257,21 @@ else:
         run(10, 2, False, True)
         run(10, 2, True, True)
 
+    @skipXLA
+    @skipIfTorchDynamo("Torchdynamo fails and we do not need to test it here anyway")
+    @dtypes(*all_types_and_complex_and(torch.half, torch.bool, torch.bfloat16))
+    def test_cowsim_warning(self, device, dtype):
+        a = torch.tensor([[0, 1], [2, 3]], device=device, dtype=dtype)
+        b = torch._C._simulated_lazy_clone(a)
+
+        #a[0] = 1
+        #b[0] = 2
+
+        a.fill_(0)
+        b.fill_(1)
+        print(a.data_ptr())
+        print(b.data_ptr())
+
     # FIXME: move to test distributions
     @skipIfMps
     @dtypesIfCUDA(torch.float, torch.double, torch.half)

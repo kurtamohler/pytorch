@@ -11,6 +11,7 @@
 #include <c10/util/MaybeOwned.h>
 #include <c10/util/UniqueVoidPtr.h>
 #include <c10/util/intrusive_ptr.h>
+#include <c10/core/impl/COWSim.h>
 #include <cstddef>
 #include <utility>
 
@@ -31,7 +32,8 @@ struct C10_API Storage {
 
   Storage() = default;
   Storage(c10::intrusive_ptr<StorageImpl> ptr)
-      : storage_impl_(std::move(ptr)) {}
+      : storage_impl_(std::move(ptr)),
+        cowsim_alias_group_id_(reinterpret_cast<std::uintptr_t>(this)) {}
 
   // Allocates memory buffer using given allocator and creates a storage with it
   Storage(
@@ -43,7 +45,8 @@ struct C10_API Storage {
             StorageImpl::use_byte_size_t(),
             size_bytes,
             allocator,
-            resizable)) {}
+            resizable)),
+        cowsim_alias_group_id_(reinterpret_cast<std::uintptr_t>(this)) {}
 
   // Creates storage with pre-allocated memory buffer. Allocator is given for
   // potential future reallocations, however it can be nullptr if the storage
@@ -59,12 +62,14 @@ struct C10_API Storage {
             size_bytes,
             std::move(data_ptr),
             allocator,
-            resizable)) {}
+            resizable)),
+        cowsim_alias_group_id_(reinterpret_cast<std::uintptr_t>(this)) {}
 
  protected:
   explicit Storage(unsafe_borrow_t, const Storage& rhs)
       : storage_impl_(c10::intrusive_ptr<c10::StorageImpl>::reclaim(
-            rhs.storage_impl_.get())) {}
+            rhs.storage_impl_.get())),
+        cowsim_alias_group_id_(rhs.cowsim_alias_group_id_) {}
 
   friend MaybeOwnedTraits<Storage>;
 
@@ -87,6 +92,10 @@ struct C10_API Storage {
     TORCH_CHECK(resizable() && allocator());
     set_nbytes(0);
     set_data_ptr_noswap(allocator()->allocate(0));
+  }
+
+  void reset_cowsim_alias_group_id() {
+    cowsim_alias_group_id_ = reinterpret_cast<std::uintptr_t>(this);
   }
 
   // TODO: remove later
@@ -112,19 +121,19 @@ struct C10_API Storage {
   // get() use here is to get const-correctness
 
   const void* data() const {
-    return storage_impl_->data();
+    return storage_impl_->data(cowsim_alias_group_id_);
   }
 
   void* mutable_data() const {
-    return storage_impl_->mutable_data();
+    return storage_impl_->mutable_data(cowsim_alias_group_id_);
   }
 
   at::DataPtr& mutable_data_ptr() const {
-    return storage_impl_->mutable_data_ptr();
+    return storage_impl_->mutable_data_ptr(cowsim_alias_group_id_);
   }
 
   const at::DataPtr& data_ptr() const {
-    return storage_impl_->data_ptr();
+    return storage_impl_->data_ptr(cowsim_alias_group_id_);
   }
 
   // Returns the previous data_ptr
@@ -204,6 +213,7 @@ struct C10_API Storage {
 
  protected:
   c10::intrusive_ptr<StorageImpl> storage_impl_;
+  c10::impl::cowsim::COWSimAliasGroupID cowsim_alias_group_id_;
 };
 
 template <>

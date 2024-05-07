@@ -1043,6 +1043,10 @@ struct C10_API TensorImpl : public c10::intrusive_ptr_target {
     return storage_;
   }
 
+  void reset_cowsim_alias_group_id() {
+    storage_.reset_cowsim_alias_group_id();
+  }
+
   bool unique_version() const {
     return version_counter_.unique();
   }
@@ -3202,7 +3206,7 @@ class C10_TensorImpl_Size_Check_Dummy_Class : private TensorImpl {
     constexpr size_t tsize = 20 * sizeof(int64_t);
 
     // clang-format off
-    are_equal<sizeof(storage_),            4,  FieldNameEnum::storage_>();
+    are_equal<sizeof(storage_),            8,  FieldNameEnum::storage_>();
     are_equal<sizeof(autograd_meta_),      4,  FieldNameEnum::autograd_meta_>();
     are_equal<sizeof(extra_meta_),         4,  FieldNameEnum::extra_meta_>();
     are_equal<sizeof(version_counter_),    4,  FieldNameEnum::version_counter_>();
@@ -3224,7 +3228,7 @@ class C10_TensorImpl_Size_Check_Dummy_Class : private TensorImpl {
     constexpr size_t tsize = 26 * sizeof(int64_t);
 
     // clang-format off
-    are_equal<sizeof(storage_),            8,  FieldNameEnum::storage_>();
+    are_equal<sizeof(storage_),            16,  FieldNameEnum::storage_>();
     // On some systems involving NVCC the size of unique_ptr is 16 bytes. We haven't
     // figured out how to detect those via macro preprocessors yet, so we use <=
     // comparisons for the relevant fields.

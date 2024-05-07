@@ -1204,7 +1204,10 @@ struct C10_EXPORT ivalue::Future final : c10::intrusive_ptr_target {
       }
       if (!storage->device().is_cpu()) {
         impl_.recordDataPtrOnStream(
-            storage->data_ptr(), impl_.getStream(storage->device()));
+            // TODO: What do I do about the group ID here??? I think there is no
+            // reason that this should affect the COW sim, so we should have a
+            // way to force it not to change
+            storage->data_ptr(0), impl_.getStream(storage->device()));
       }
     }
   }

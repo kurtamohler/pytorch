@@ -2212,6 +2212,16 @@ Call this whenever a new thread is created in order to propagate values from
       "Checks if a tensor's data pointer is COW");
 
   py_module.def(
+      "_simulated_lazy_clone",
+      [](const at::Tensor& tensor) {
+        at::Tensor view = tensor.view(tensor.sizes());
+        view.unsafeGetTensorImpl()->reset_cowsim_alias_group_id();
+        tensor.storage().unsafeGetStorageImpl()->maybe_enable_cowsim();
+        return view;
+      },
+      "Creates a view of the input and enables COW simulation on their shared StorageImpl");
+
+  py_module.def(
       "_get_cudnn_batch_norm_reserve_space_size",
       [](const at::Tensor& input, bool training) {
 #ifdef USE_CUDA

@@ -982,11 +982,13 @@ void removeStorageDeleterFns(
     const std::vector<c10::StorageImpl*>& stale_live_storages,
     std::unordered_set<void*> definitely_stale_pointers) {
   for (c10::StorageImpl* stale_storage : stale_live_storages) {
-    auto ptr = stale_storage->data_ptr().get();
+    // TODO: Figure this one out
+    auto ptr = stale_storage->data_ptr(0).get();
     auto allocated_pointer = definitely_stale_pointers.find(ptr);
     TORCH_CHECK(allocated_pointer != definitely_stale_pointers.end());
     auto t = c10::cuda::CUDACachingAllocator::get();
-    bool succeeded = stale_storage->mutable_data_ptr().compare_exchange_deleter(
+    // TODO: Figure this one out
+    bool succeeded = stale_storage->mutable_data_ptr(0).compare_exchange_deleter(
         t->raw_deleter(), &c10::detail::deleteNothing);
 
     TORCH_CHECK(
@@ -1000,13 +1002,15 @@ void addStorageDeleterFns(
     c10::cuda::CUDACachingAllocator::CheckpointDelta& delta) {
   std::unordered_map<void*, c10::StorageImpl*> storages;
   for (auto& storage : storages_to_add_deleters_to) {
-    storages[storage->data_ptr().get()] = storage;
+    // TODO: Figure this one out
+    storages[storage->data_ptr(0).get()] = storage;
   }
 
   for (auto& data_ptr : delta.dataptrs_allocd) {
     auto storage_pair = storages.find(data_ptr.get());
     if (storage_pair != storages.end()) {
-      auto ctx = storage_pair->second->data_ptr().get_context();
+      // TODO: Figure this one out
+      auto ctx = storage_pair->second->data_ptr(0).get_context();
       TORCH_CHECK(ctx == nullptr, " Not expecting deleter function");
       storage_pair->second->set_data_ptr_noswap(std::move(data_ptr));
     } else {
@@ -1149,8 +1153,9 @@ static void registerCudaPluggableAllocator(PyObject* module) {
     // NOLINTNEXTLINE(performance-no-int-to-ptr)
     c10::StorageImpl* storage_impl = (c10::StorageImpl*)storage_impl_ptr;
     auto alloc = c10::cuda::CUDACachingAllocator::get();
-    auto data_ptr = storage_impl->data_ptr().get();
-    bool succeeded = storage_impl->mutable_data_ptr().compare_exchange_deleter(
+    // TODO: Figure this one out
+    auto data_ptr = storage_impl->data_ptr(0).get();
+    bool succeeded = storage_impl->mutable_data_ptr(0).compare_exchange_deleter(
         alloc->raw_deleter(), c10::detail::deleteNothing);
     TORCH_CHECK(succeeded, "Expected standard deleter");
     c10::cuda::CUDACachingAllocator::raw_delete(data_ptr);
@@ -1166,7 +1171,7 @@ static void registerCudaPluggableAllocator(PyObject* module) {
     // NOLINTNEXTLINE(performance-no-int-to-ptr)
     c10::StorageImpl* storage_impl = (c10::StorageImpl*)storage_impl_ptr;
     auto alloc = c10::cuda::CUDACachingAllocator::get();
-    return (storage_impl->data_ptr().get_deleter() == alloc->raw_deleter());
+    return (storage_impl->_data_ptr_no_checks().get_deleter() == alloc->raw_deleter());
   });
 
   m.def("_set_cached_tensors_enabled", [](bool enabled) {

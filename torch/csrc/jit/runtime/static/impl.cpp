@@ -1889,7 +1889,7 @@ bool BlockRunner::check_for_memory_leak(
             if (t.defined()) {
               auto* storage_impl = t.storage().unsafeGetStorageImpl();
               TORCH_CHECK(
-                  storage_impl->data() == nullptr ||
+                  t.storage().data() == nullptr ||
                       (planner_ &&
                        planner_->isManagedStorageImpl(storage_impl)),
                   error_msg);
@@ -1947,11 +1947,10 @@ bool BlockRunner::checkOutputTensorMemoryLeaks() {
       }
       const auto& t = ival->toTensor();
       if (t.defined()) {
-        auto* storage_impl = t.storage().unsafeGetStorageImpl();
         const std::string error_msg = "Output " + c10::to_string(i) + ", %" +
             val->debugName() + " of node " + c10::to_string(n) +
             " was not cleaned up";
-        TORCH_CHECK(storage_impl->data() == nullptr, error_msg);
+        TORCH_CHECK(t.storage().data() == nullptr, error_msg);
       }
     }
   }

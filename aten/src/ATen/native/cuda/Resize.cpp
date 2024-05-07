@@ -29,13 +29,15 @@ void resize_bytes_cuda(StorageImpl* storage, size_t size_bytes) {
 
   c10::cuda::CUDAGuard guard(device.index());
   at::DataPtr data = allocator->allocate(size_bytes);
-  if (storage->data_ptr()) {
+  // TODO: figure out what to do here
+  if (storage->data_ptr(0)) {
     at::globalContext().lazyInitCUDA();
 
     C10_CUDA_CHECK(
         cudaMemcpyAsync(
             data.get(),
-            storage->data(),
+            // TODO: figure out what to do here
+            storage->data(0),
             std::min(storage->nbytes(), size_bytes),
             cudaMemcpyDeviceToDevice,
             c10::cuda::getCurrentCUDAStream()));

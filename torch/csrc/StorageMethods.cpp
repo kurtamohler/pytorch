@@ -302,68 +302,69 @@ static PyObject* THPStorage_fromBuffer(
       c10::GetDefaultCPUAllocator(),
       /*resizable=*/true);
 
+  // TODO: Need nosim arg
   if (is_endian_independent) {
-    memcpy(storage->mutable_data(), src + offset, count);
+    memcpy(storage->mutable_data(0), src + offset, count);
   } else if (scalar_type == at::kBool) {
     // Because of ASAN checks, that are failing whenever
     // we are trying to get a value which is not 0 or 1, we have to manually
     // convert original values to boolean ones.
     torch::utils::THP_decodeBoolBuffer(
-        static_cast<bool*>(storage->mutable_data()),
+        static_cast<bool*>(storage->mutable_data(0)),
         src + offset,
         do_byte_swap,
         count);
   } else if (scalar_type == at::kShort) {
     torch::utils::THP_decodeInt16Buffer(
-        static_cast<int16_t*>(storage->mutable_data()),
+        static_cast<int16_t*>(storage->mutable_data(0)),
         src + offset,
         do_byte_swap,
         count);
   } else if (scalar_type == at::kInt) {
     torch::utils::THP_decodeInt32Buffer(
-        static_cast<int32_t*>(storage->mutable_data()),
+        static_cast<int32_t*>(storage->mutable_data(0)),
         src + offset,
         do_byte_swap,
         count);
   } else if (scalar_type == at::kLong) {
     torch::utils::THP_decodeInt64Buffer(
-        static_cast<int64_t*>(storage->mutable_data()),
+        static_cast<int64_t*>(storage->mutable_data(0)),
         src + offset,
         do_byte_swap,
         count);
   } else if (scalar_type == at::kHalf) {
     torch::utils::THP_decodeHalfBuffer(
-        static_cast<c10::Half*>(storage->mutable_data()),
+        static_cast<c10::Half*>(storage->mutable_data(0)),
         src + offset,
         do_byte_swap,
         count);
   } else if (scalar_type == at::kBFloat16) {
     torch::utils::THP_decodeBFloat16Buffer(
-        static_cast<c10::BFloat16*>(storage->mutable_data()),
+        static_cast<c10::BFloat16*>(storage->mutable_data(0)),
         src + offset,
         do_byte_swap,
         count);
   } else if (scalar_type == at::kFloat) {
     torch::utils::THP_decodeFloatBuffer(
-        static_cast<float*>(storage->mutable_data()),
+        static_cast<float*>(storage->mutable_data(0)),
         src + offset,
         do_byte_swap,
         count);
   } else if (scalar_type == at::kDouble) {
     torch::utils::THP_decodeDoubleBuffer(
-        static_cast<double*>(storage->mutable_data()),
+        static_cast<double*>(storage->mutable_data(0)),
         src + offset,
         do_byte_swap,
         count);
   } else if (scalar_type == at::kComplexFloat) {
     torch::utils::THP_decodeComplexFloatBuffer(
-        static_cast<c10::complex<float>*>(storage->mutable_data()),
+        static_cast<c10::complex<float>*>(storage->mutable_data(0)),
         src + offset,
         do_byte_swap,
         count);
   } else if (scalar_type == at::kComplexDouble) {
     torch::utils::THP_decodeComplexDoubleBuffer(
-        static_cast<c10::complex<double>*>(storage->mutable_data()),
+        static_cast<c10::complex<double>*>(storage->mutable_data(0)),
         src + offset,
         do_byte_swap,
         count);

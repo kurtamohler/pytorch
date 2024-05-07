@@ -33,7 +33,7 @@ at::DataPtr copy_data_ptr(at::DataPtr const& data_ptr) {
 } // namespace
 
 bool has_simple_data_ptr(const c10::StorageImpl& storage) {
-  const c10::DataPtr& data_ptr = storage.data_ptr();
+  const c10::DataPtr& data_ptr = storage._data_ptr_no_checks();
   const void* ctx = data_ptr.get_context();
   const void* data = data_ptr.get();
   const c10::Allocator* allocator = storage.allocator();
@@ -49,7 +49,7 @@ bool is_cow_data_ptr(const c10::DataPtr& data_ptr) {
 }
 
 c10::intrusive_ptr<StorageImpl> lazy_clone_storage(StorageImpl& storage) {
-  const at::DataPtr& data_ptr = storage.data_ptr();
+  const c10::DataPtr& data_ptr = storage._data_ptr_no_checks();
 
   // There are three possible circumstances:
   //
@@ -114,7 +114,7 @@ C10_API void materialize_cow_storage(StorageImpl& storage) {
   TORCH_INTERNAL_ASSERT(
       !c10::ParallelGuard::is_enabled(),
       "Materializing a storage in the loop function of at::parallel_for is forbidden");
-  const at::DataPtr& data_ptr = storage.data_ptr();
+  const c10::DataPtr& data_ptr = storage._data_ptr_no_checks();
 
   auto* ctx = data_ptr.cast_context<cow::COWDeleterContext>(cow::cow_deleter);
   TORCH_INTERNAL_ASSERT(ctx != nullptr);
