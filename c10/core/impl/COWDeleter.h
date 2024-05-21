@@ -11,9 +11,32 @@
 
 namespace c10::impl::cow {
 
+using COWSimAccessorID = std::uintptr_t;
+enum class AccessType;
+
+class COWSimDeleterContext {
+ public:
+  bool is_cowsim() const;
+  void enable_cowsim();
+  void check_write(COWSimAccessorID writer);
+  void check_read(COWSimAccessorID reader);
+
+ protected:
+  COWSimDeleterContext() = default;
+  ~COWSimDeleterContext() = default;
+
+ private:
+  void raise_warning(AccessType access_type);
+
+  bool is_cowsim_ = false;
+  bool has_first_writer_ = false;
+  bool has_raised_ = false;
+  COWSimAccessorID first_writer_ = 0;
+};
+
 // A COWDeleterContext object is used as the `ctx` argument for DataPtr
 // to implement a Copy-on-write (COW) DataPtr.
-class C10_API COWDeleterContext {
+class C10_API COWDeleterContext : public COWSimDeleterContext {
  public:
   // Creates an instance, holding the pair of data and original
   // deleter.
@@ -45,14 +68,19 @@ class C10_API COWDeleterContext {
   // do with it.
   std::variant<NotLastReference, LastReference> decrement_refcount();
 
- private:
+  bool is_cow() const;
+  void enable_cow();
+
+ protected:
   // The destructor is hidden, this should only ever be used within
   // UniqueVoidPtr using cow::delete_context as the deleter.
   ~COWDeleterContext();
 
+ private:
   std::shared_mutex mutex_;
   std::unique_ptr<void, DeleterFnPtr> data_;
   std::atomic<std::int64_t> refcount_ = 1;
+  bool is_cow_ = false;
 };
 
 // `cow_deleter` is used as the `ctx_deleter` for DataPtr to implement a COW
@@ -62,5 +90,10 @@ class C10_API COWDeleterContext {
 // was allocated on the heap with `new`, because when the refcount reaches 0,
 // the context is deleted with `delete`.
 C10_API void cow_deleter(void* ctx);
+
+// Enables future behavior to make operators always return a copy in cases where
+// they currently conditionally return a view or a copy
+C10_API void set_extra_conditional_view_warnings(bool mode);
+C10_API bool get_extra_conditional_view_warnings();
 
 } // namespace c10::impl::cow

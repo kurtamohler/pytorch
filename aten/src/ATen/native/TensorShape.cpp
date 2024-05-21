@@ -31,6 +31,7 @@
 #include <c10/util/SmallVector.h>
 #include <c10/util/accumulate.h>
 #include <c10/util/irange.h>
+#include <c10/core/impl/COW.h>
 
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
@@ -150,6 +151,7 @@
 #include <ATen/ops/select_native.h>
 #include <ATen/ops/select_scatter_native.h>
 #include <ATen/ops/set_native.h>
+#include <ATen/ops/_simulate_lazy_clone_native.h>
 #include <ATen/ops/slice.h>
 #include <ATen/ops/slice_backward_native.h>
 #include <ATen/ops/slice_copy_native.h>
@@ -1634,13 +1636,19 @@ Tensor reshape_symint(const Tensor& self, c10::SymIntArrayRef proposed_shape) {
     AT_ERROR("reshape is not implemented for sparse tensors");
   }
 
+  // TODO: Make the changes in this file less verbose
   if (self.is_contiguous() && !self.is_mkldnn()) {
-    return self.view_symint(proposed_shape);
+    if (c10::impl::cow::get_future_copy_instead_of_conditional_view()) {
+      return at::_unsafe_view_symint(self._lazy_clone(), proposed_shape);
+    } else {
+      return at::native::_simulate_lazy_clone(self.view_symint(proposed_shape));
+    }
   }
 
   c10::SymDimVector shape = infer_size_dv(proposed_shape, self.sym_numel());
 
   if (self.is_mkldnn()) {
+    // TODO: Will need to do this one
     return at::_mkldnn_reshape(self, C10_AS_INTARRAYREF_SLOW(shape));
   }
 
@@ -1658,16 +1666,21 @@ Tensor reshape_symint(const Tensor& self, c10::SymIntArrayRef proposed_shape) {
   //     `_reshape_alias` that essentially does the same thing as `view` and
   //     `as_strided` without any of the extra overhead.
   if (stride.has_value()) {
-    // Temporary check to revert to the old behavior/view in cases where the
-    // device is not supported (e.g. for XLA the operation is not supported
-    // so we use `view` instead).
-    //
-    // We need to do the checks here instead of in `native_functions.yaml`
-    // to preserve backwards compatibility.
-    if (!self.is_xla() && !self.is_lazy() && !self.is_ipu() && !at::isTensorSubclassLike(self)) {
-      return self._reshape_alias_symint(shape, stride.value());
+    if (c10::impl::cow::get_future_copy_instead_of_conditional_view()) {
+      return at::_unsafe_view_symint(self._lazy_clone(), shape);
+
     } else {
-      return self.view_symint(shape);
+      // Temporary check to revert to the old behavior/view in cases where the
+      // device is not supported (e.g. for XLA the operation is not supported
+      // so we use `view` instead).
+      //
+      // We need to do the checks here instead of in `native_functions.yaml`
+      // to preserve backwards compatibility.
+      if (!self.is_xla() && !self.is_lazy() && !self.is_ipu() && !at::isTensorSubclassLike(self)) {
+        return at::native::_simulate_lazy_clone(self._reshape_alias_symint(shape, stride.value()));
+      } else {
+        return at::native::_simulate_lazy_clone(self.view_symint(shape));
+      }
     }
   }
   return at::_unsafe_view_symint(self.clone(at::MemoryFormat::Contiguous), shape);
@@ -1699,6 +1712,7 @@ Tensor reshape(const Tensor& self, IntArrayRef proposed_shape) {
   DimVector shape = infer_size_dv(proposed_shape, self.numel());
 
   if (self.is_mkldnn()) {
+    // TODO: Instrument this
     return at::_mkldnn_reshape(self, shape);
   }
 
@@ -1716,16 +1730,21 @@ Tensor reshape(const Tensor& self, IntArrayRef proposed_shape) {
   //     `_reshape_alias` that essentially does the same thing as `view` and
   //     `as_strided` without any of the extra overhead.
   if (stride.has_value()) {
-    // Temporary check to revert to the old behavior/view in cases where the
-    // device is not supported (e.g. for XLA the operation is not supported
-    // so we use `view` instead).
-    //
-    // We need to do the checks here instead of in `native_functions.yaml`
-    // to preserve backwards compatibility.
-    if (!self.is_xla() && !self.is_lazy() && !self.is_ipu()) {
-      return self._reshape_alias(shape, stride.value());
+    if (c10::impl::cow::get_future_copy_instead_of_conditional_view()) {
+      return at::_unsafe_view(self._lazy_clone(), shape);
+
     } else {
-      return self.view(shape);
+      // Temporary check to revert to the old behavior/view in cases where the
+      // device is not supported (e.g. for XLA the operation is not supported
+      // so we use `view` instead).
+      //
+      // We need to do the checks here instead of in `native_functions.yaml`
+      // to preserve backwards compatibility.
+      if (!self.is_xla() && !self.is_lazy() && !self.is_ipu()) {
+        return at::native::_simulate_lazy_clone(self._reshape_alias(shape, stride.value()));
+      } else {
+        return at::native::_simulate_lazy_clone(self.view(shape));
+      }
     }
   }
   return at::_unsafe_view(self.clone(at::MemoryFormat::Contiguous), shape);

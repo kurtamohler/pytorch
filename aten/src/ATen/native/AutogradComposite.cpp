@@ -1,5 +1,6 @@
 #define TORCH_ASSERT_ONLY_METHOD_OPERATORS
 #include <ATen/core/Tensor.h>
+#include <ATen/NamedTensorUtils.h>
 #include <c10/util/SmallBuffer.h>
 #include <c10/core/impl/COW.h>
 
@@ -12,6 +13,7 @@
 #include <ATen/ops/_new_zeros_with_same_feature_meta_native.h>
 #include <ATen/ops/_unpack_dual_native.h>
 #include <ATen/ops/_lazy_clone_native.h>
+#include <ATen/ops/_simulate_lazy_clone_native.h>
 #include <ATen/ops/alias.h>
 #include <ATen/ops/zeros.h>
 #endif
@@ -91,19 +93,41 @@ bool _has_same_storage_numel(const at::Tensor& base, const at::Tensor& other) {
   return base.storage().sym_nbytes() / base.itemsize() == other.storage().sym_nbytes() / other.itemsize();
 }
 
-Tensor _lazy_clone(Tensor const& self) {
+static Tensor _lazy_clone_impl(Tensor const& self, bool simulate) {
   c10::StorageImpl* self_storage = self.storage().unsafeGetStorageImpl();
-  c10::intrusive_ptr<c10::StorageImpl> storage =
-    c10::impl::cow::lazy_clone_storage(*self_storage);
+  c10::intrusive_ptr<c10::StorageImpl> storage;
+  if (simulate) {
+    storage = c10::impl::cow::simulate_lazy_clone_storage(*self_storage);
+  } else {
+    storage = c10::impl::cow::lazy_clone_storage(*self_storage);
+  }
   TORCH_CHECK(storage != nullptr);
-  auto tensor = c10::make_intrusive<c10::TensorImpl>(
+  Tensor self_;
+
+  if (simulate) {
+    self_ = self.view_symint(self.sym_sizes());
+    self_.unsafeGetTensorImpl()->set_storage_keep_dtype(storage);
+
+  } else {
+    self_ = at::detail::make_tensor<TensorImpl>(
       c10::Storage(std::move(storage)),
       self.key_set(),
       self.dtype());
-  tensor->set_sizes_and_strides(self.sym_sizes(),
-                                self.sym_strides(),
-                                self.sym_storage_offset());
-  return Tensor(std::move(tensor));
+
+    self_.unsafeGetTensorImpl()->set_sizes_and_strides(
+      self.sym_sizes(),
+      self.sym_strides(),
+      self.sym_storage_offset());
+  }
+  return self_;
+}
+
+Tensor _lazy_clone(Tensor const& self) {
+  return _lazy_clone_impl(self, /*simulate=*/false);
+}
+
+Tensor _simulate_lazy_clone(Tensor const& self) {
+  return _lazy_clone_impl(self, /*simulate=*/true);
 }
 
 } // namespace at::native
