@@ -7333,7 +7333,8 @@ scipy_lobpcg  | {eq_err_scipy:10.2e}  | {eq_err_general_scipy:10.2e}  | {iters2:
             tens = (0.5 * (tens.transpose(-1, -2) + tens))
             with warnings.catch_warnings(record=True) as w:
                 tens.imag = torch.matrix_exp(tens.imag)
-                self.assertFalse(len(w))
+                for w_ in w:
+                    self.assertFalse('An output with one or more elements was resized' in str(w_.message))
 
     @skipCUDAIfNoMagma
     @skipCPUIfNoLapack

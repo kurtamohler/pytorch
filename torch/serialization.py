@@ -1028,7 +1028,12 @@ def _legacy_save(obj, f, pickle_module, pickle_protocol) -> None:
             # Offset is always 0, but we keep it for backwards compatibility
             # with the old serialization format (which supported storage views)
             offset = 0
-            storage_key = str(storage._cdata)
+            if torch._C._is_cowsim_storage(cast(Storage, storage)):
+                # COWSim aliases have different _cdata, so use data_ptr as the
+                # key to preserve their view relationship.
+                storage_key = str(storage.data_ptr())
+            else:
+                storage_key = str(storage._cdata)
             location = location_tag(storage)
 
             # TODO: There's an issue here with FC. It might be impossible to
@@ -1161,7 +1166,12 @@ def _save(
                 else:
                     storage_dtypes[storage.data_ptr()] = storage_dtype
 
-            storage_key = id_map.setdefault(storage._cdata, str(len(id_map)))
+            if torch._C._is_cowsim_storage(cast(Storage, storage)):
+                # COWSim aliases have different _cdata, so use data_ptr as the
+                # key to preserve their view relationship.
+                storage_key = id_map.setdefault(storage.data_ptr(), str(len(id_map)))
+            else:
+                storage_key = id_map.setdefault(storage._cdata, str(len(id_map)))
             if hasattr(obj, "_fake_device") and obj._fake_device is not None:
                 location = str(obj._fake_device)
             else:

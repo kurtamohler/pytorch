@@ -1,6 +1,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <c10/util/Exception.h>
 #include <c10/util/UniqueVoidPtr.h>
 
 #include <atomic>
@@ -45,14 +46,35 @@ class C10_API COWDeleterContext {
   // do with it.
   std::variant<NotLastReference, LastReference> decrement_refcount();
 
- private:
+ protected:
   // The destructor is hidden, this should only ever be used within
   // UniqueVoidPtr using cow::delete_context as the deleter.
   ~COWDeleterContext();
 
-  std::shared_mutex mutex_;
   std::unique_ptr<void, DeleterFnPtr> data_;
+
+ private:
+  std::shared_mutex mutex_;
   std::atomic<std::int64_t> refcount_ = 1;
+};
+
+using COWSimAccessorID = std::uintptr_t;
+
+enum class AccessType;
+
+class C10_API COWSimDeleterContext : public COWDeleterContext {
+ public:
+  explicit COWSimDeleterContext(std::unique_ptr<void, DeleterFnPtr> data);
+
+  void check_write(COWSimAccessorID writer);
+  void check_read(COWSimAccessorID reader);
+
+ private:
+  void raise_warning(AccessType access_type);
+
+  bool has_first_writer_;
+  bool has_raised_;
+  COWSimAccessorID first_writer_;
 };
 
 // `cow_deleter` is used as the `ctx_deleter` for DataPtr to implement a COW
@@ -62,5 +84,25 @@ class C10_API COWDeleterContext {
 // was allocated on the heap with `new`, because when the refcount reaches 0,
 // the context is deleted with `delete`.
 C10_API void cow_deleter(void* ctx);
+
+C10_API void cowsim_deleter(void* ctx);
+
+// Emits extra warnings when COWSim views are created, read, or modified.
+C10_API void set_extra_conditional_view_warnings(bool mode);
+C10_API bool get_extra_conditional_view_warnings();
+
+// Upgrades conditional view warnings to errors with a backtrace. This is
+// helpful for debugging.
+C10_API void set_error_on_conditional_view_warnings(bool mode);
+C10_API bool get_error_on_conditional_view_warnings();
+
+template <typename... Args>
+void alert_cowsim(const Args&... args) {
+  if (get_error_on_conditional_view_warnings()) {
+    TORCH_CHECK_ALWAYS_SHOW_CPP_STACKTRACE(false, args...);
+  } else {
+    TORCH_WARN(args...);
+  }
+}
 
 } // namespace c10::impl::cow
