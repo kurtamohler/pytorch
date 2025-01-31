@@ -41,7 +41,7 @@ from torch.testing._internal.common_utils import (  # type: ignore[attr-defined]
     skipIfCrossRef, TEST_WITH_CROSSREF, skipIfTorchDynamo, skipRocmIfTorchInductor, set_default_dtype,
     skipCUDAMemoryLeakCheckIf, BytesIOContext,
     skipIfRocm, skipIfNoSciPy, TemporaryFileName, TemporaryDirectoryName,
-    wrapDeterministicFlagAPITest, DeterministicGuard, CudaSyncGuard,
+    wrapDeterministicFlagAPITest, DeterministicGuard, CudaSyncGuard, futureLazyCloneGuard,
     bytes_to_scalar, parametrize, skipIfMPS, noncontiguous_like,
     AlwaysWarnTypedStorageRemoval, TEST_WITH_TORCHDYNAMO, xfailIfTorchDynamo)
 from multiprocessing.reduction import ForkingPickler
@@ -94,6 +94,20 @@ def torch_vital_set(value):
             os.environ['TORCH_VITAL'] = stash
         else:
             del os.environ['TORCH_VITAL']
+
+@contextlib.contextmanager
+def assertNoLeakedLazyCloneWarnings(ignore=False):
+    pattern = ".*conditionally creates either a view or copy"
+    with warnings.catch_warnings(record=True) as w:
+        warnings.filterwarnings('ignore')
+        if not ignore:
+            warnings.filterwarnings('always', pattern)
+        try:
+            yield
+        finally:
+            assert len(w) == 0, (
+                'Expected no warnings related to lazy clone to leak, '
+                f'but got: {[str(w_) for w_ in w]}')
 
 # Tests Vital Signs for Torch
 # FIXME: document or deprecate whatever this is
@@ -432,6 +446,8 @@ class TestTorchDeviceType(TestCase):
         # Check that deepcopy preserves attributes
         a.foo = 3
         self.assertEqual(deepcopy(a).foo, 3)
+
+        self.assertEqual(torch._C._data_address(w[0]), torch._C._data_address(w[3]))
 
     @dtypes(torch.float32, torch.complex64)
     def test_deepcopy_scalar(self, device, dtype):
@@ -5192,6 +5208,7 @@ else:
     # in-between the two write operations, by adding checks between them, so
     # that they have to materialize in the expected order.
     @skipXLA
+    @futureLazyCloneGuard()
     @dtypes(*all_types_and_complex_and(torch.half, torch.bool, torch.bfloat16))
     def test_lazy_clone(self, device, dtype):
         t = torch.tensor([[0, 1], [2, 3]], device=device, dtype=dtype)
@@ -5212,8 +5229,39 @@ else:
         self.assertTrue(torch._C._data_address(t) == orig_data_ptr)
         self.assertTrue(torch._C._data_address(clone) == orig_data_ptr)
 
+    @dtypes(*all_types_and_complex_and(torch.half, torch.bfloat16))
+    @assertNoLeakedLazyCloneWarnings(ignore=True)
+    def test_lazy_clone_viewness(self, device, dtype):
+        for future in [False, True]:
+            with futureLazyCloneGuard(future):
+                a = torch.randn(10)
+                b = torch._lazy_clone(a)
+                if future:
+                    self.assertFalse(b._is_view())
+                else:
+                    self.assertTrue(b._is_view())
+
+    @dtypes(*all_types_and_complex_and(torch.half, torch.bfloat16))
+    @assertNoLeakedLazyCloneWarnings()
+    @futureLazyCloneGuard(False)
+    def test_lazy_clone_warning(self, device, dtype):
+        # Test warning
+        a = torch.randn(10)
+        with self.assertWarnsRegex(UserWarning, "conditionally creates either a view or copy"):
+            torch._lazy_clone(a)
+
+        # Test error
+        try:
+            torch.set_error_on_conditional_view_warnings(True)
+            a = torch.randn(10)
+            with self.assertRaisesRegex(RuntimeError, "conditionally creates either a view or copy"):
+                torch._lazy_clone(a)
+        finally:
+            torch.set_error_on_conditional_view_warnings(False)
+
     # See Note [lazy_clone_ tests with inductor enabled]
     @skipXLA
+    @futureLazyCloneGuard()
     @dtypes(*all_types_and_complex_and(torch.half, torch.bool, torch.bfloat16))
     def test_lazy_clone_view(self, device, dtype):
         t = torch.tensor([[0, 1], [2, 3]], device=device, dtype=dtype)
@@ -5241,6 +5289,7 @@ else:
 
     # See Note [lazy_clone_ tests with inductor enabled]
     @skipXLA
+    @futureLazyCloneGuard()
     @dtypes(*all_types_and_complex_and(torch.half, torch.bool, torch.bfloat16))
     def test_lazy_clone_view_materialize(self, device, dtype):
         t = torch.tensor([[0, 1], [2, 3]], device=device, dtype=dtype)
@@ -5287,6 +5336,7 @@ else:
         self.assertTrue(torch._C._data_address(clone) == orig_data_ptr)
 
     @skipXLA
+    @futureLazyCloneGuard()
     @dtypes(*all_types_and_complex_and(torch.half, torch.bool, torch.bfloat16))
     def test_lazy_clone_binary_op_no_materialize(self, device, dtype):
         t = torch.tensor([[0, 1], [2, 3]], device=device, dtype=dtype)
@@ -5301,6 +5351,7 @@ else:
     # without multithreading support in `at::parallel_for`.
     @skipXLA
     @skipIfTorchDynamo("Torchdynamo fails and we do not need to test it here anyway")
+    @futureLazyCloneGuard()
     @dtypes(*all_types_and_complex_and(torch.half, torch.bool, torch.bfloat16))
     def test_parallel_cow_materialize_error(self, device, dtype):
 
@@ -5336,6 +5387,33 @@ else:
         run(10, 10, True, True)
         run(10, 2, False, True)
         run(10, 2, True, True)
+
+    # Tests the deprecated behavior of operators that conditionally create
+    # views. When `torch.get_future_lazy_clone() == False`, the operator must
+    # raise a warning in the case where a view is created. When
+    # `torch.get_future_lazy_clone() == True`, the operator must create a lazy
+    # clone, not a view.
+    @dtypes(*all_types_and_complex_and(torch.half, torch.bfloat16))
+    @assertNoLeakedLazyCloneWarnings()
+    @parametrize("init_fn, view_fn", [
+        (
+            lambda device, dtype: make_tensor((10,), dtype=dtype, device=device, low=-9, high=9),
+            lambda a: a.reshape((2, 5)),
+        )
+    ])
+    def test_conditional_view_deprecation(self, device, dtype, init_fn, view_fn):
+        # Test deprecated behavior
+        a0 = init_fn(device, dtype)
+        with futureLazyCloneGuard(False):
+            with self.assertWarnsRegex(UserWarning, "conditionally creates either a view or copy"):
+                r0 = view_fn(a0)
+        self.assertFalse(torch._C._is_cow_tensor(r0))
+
+        # Test future behavior
+        a1 = init_fn(device, dtype)
+        with futureLazyCloneGuard(True):
+            r1 = view_fn(a1)
+        self.assertTrue(torch._C._is_cow_tensor(r1))
 
     # FIXME: move to test distributions
     @skipIfMPS
