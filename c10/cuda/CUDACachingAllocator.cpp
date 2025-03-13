@@ -1,6 +1,7 @@
 #include <c10/cuda/CUDACachingAllocator.h>
 
 #include <c10/core/impl/GPUTrace.h>
+#include <c10/core/CPUAllocator.h>
 #include <c10/cuda/CUDAAllocatorConfig.h>
 #include <c10/cuda/CUDAException.h>
 #include <c10/cuda/CUDAFunctions.h>
@@ -3923,9 +3924,38 @@ class NativeCachingAllocator : public CUDAAllocator {
   std::string name() override {
     return "native";
   }
-  void copy_data(void* dest, const void* src, std::size_t count) const final {
+  void copy_data(
+      void* dest,
+      const void* src,
+      std::size_t count,
+      bool sync = false) const final {
     C10_CUDA_CHECK(
         cudaMemcpy(dest, src, count, cudaMemcpyKind::cudaMemcpyDeviceToDevice));
+    if (sync) {
+      c10::cuda::device_synchronize();
+    }
+  }
+  DataPtr clone_from_cpu(
+      const void* data,
+      std::size_t n) override {
+    std::cout << "in CUDACachingAllocator::clone_from_cpu" << std::endl;
+    DataPtr new_data = allocate(n);
+    C10_CUDA_CHECK(
+        cudaMemcpy(new_data.mutable_get(), data, n, cudaMemcpyKind::cudaMemcpyHostToDevice));
+    c10::cuda::device_synchronize();
+    //copy_data(new_data.mutable_get(), data, n, true);
+    return new_data;
+  }
+  DataPtr clone_to_cpu(
+      const void* data,
+      std::size_t n) override {
+    std::cout << "in CUDACachingAllocator::clone_to_cpu" << std::endl;
+    DataPtr new_data = c10::GetCPUAllocator()->allocate(n);
+    C10_CUDA_CHECK(
+        cudaMemcpy(new_data.mutable_get(), data, n, cudaMemcpyKind::cudaMemcpyDeviceToHost));
+    c10::cuda::device_synchronize();
+    //copy_data(new_data.mutable_get(), data, n, true);
+    return new_data;
   }
 };
 
