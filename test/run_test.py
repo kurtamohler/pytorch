@@ -303,6 +303,7 @@ CI_SERIAL_LIST = [
     "test_fx_backends",
     "test_cpp_extensions_jit",
     "test_torch",
+    "test_lazy_clone",
     "test_tensor_creation_ops",
     "test_dispatch",
     "test_python_dispatch",  # torch.library creation and deletion must be serialized
@@ -342,6 +343,7 @@ CORE_TEST_LIST = [
     "test_ops_fwd_gradients",
     "test_ops_jit",
     "test_torch",
+    "test_lazy_clone",
 ]
 
 
@@ -1593,6 +1595,7 @@ def get_selected_tests(options) -> list[str]:
             "inductor/test_mps_basic",
             "inductor/test_torchinductor",
             "inductor/test_aot_inductor",
+            "test_lazy_clone",
         ]
     else:
         # Exclude all mps tests otherwise
