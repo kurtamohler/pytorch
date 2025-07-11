@@ -86,6 +86,28 @@ void max_pool_3d_input_iter(
   }
 }
 
+struct IterBounds {
+  int32_t start;
+  int32_t end;
+};
+
+IterBounds get_input_iter_bounds(
+    int32_t dim,
+    constant int32_t* input_sizes,
+    thread int32_t (&work_pooling_dim_indices)[3],
+    constant int32_t* kernel_size,
+    constant int32_t* stride,
+    constant int32_t* padding,
+    constant int32_t* dilation
+) {
+  int32_t d = dilation[dim];
+  int32_t start = stride[dim] * work_pooling_dim_indices[dim] - padding[dim];
+  int32_t end = min(start + kernel_size[dim] * d, input_sizes[dim]);
+  int32_t start_correction = d * ((-start - 1 + d) / d);
+  start += start < 0 ? start_correction : 0;
+  return IterBounds{start, end};
+}
+
 template <typename T>
 void max_pool_2d_input_iter(
     constant T* input,
@@ -99,39 +121,22 @@ void max_pool_2d_input_iter(
     constant int32_t* padding,
     constant int32_t* dilation,
     bool return_indices) {
-  int32_t o0 = work_pooling_dim_indices[0];
-  int32_t o1 = work_pooling_dim_indices[1];
+  auto bounds0 = get_input_iter_bounds(0, input_sizes, work_pooling_dim_indices, kernel_size, stride, padding, dilation);
+  auto bounds1 = get_input_iter_bounds(1, input_sizes, work_pooling_dim_indices, kernel_size, stride, padding, dilation);
 
-  int32_t k0 = kernel_size[0];
-  int32_t k1 = kernel_size[1];
-
-  int32_t s0 = stride[0];
-  int32_t s1 = stride[1];
+  T max_value = input[input_strides[0] * bounds0.start + input_strides[1] * bounds1.start];
+  int32_t max_index = bounds0.start * input_sizes[1] + bounds1.start;
 
   int32_t d0 = dilation[0];
   int32_t d1 = dilation[1];
 
-  bool is_first = true;
-  T max_value = 0;
-  int32_t max_index = -1;
-
-  for (int32_t i0 = (s0 * o0) - padding[0];
-       i0 < (s0 * o0 - padding[0] + k0 * d0) && i0 < input_sizes[0];
-       i0 += d0) {
-    if (i0 < 0) {
-      continue;
-    }
+  for (int32_t i0 = bounds0.start; i0 < bounds0.end; i0 += d0) {
     int32_t offset0 = input_strides[0] * i0;
 
-    for (int32_t i1 = (s1 * o1) - padding[1];
-         i1 < (s1 * o1 - padding[1] + k1 * d1) && i1 < input_sizes[1];
-         i1 += d1) {
-      if (i1 < 0) {
-        continue;
-      }
+    for (int32_t i1 = bounds1.start; i1 < bounds1.end; i1 += d1) {
       int32_t offset1 = input_strides[1] * i1;
       const T input_value = input[offset0 + offset1];
-      bool is_greater = (is_first || input_value > max_value);
+      bool is_greater = input_value > max_value;
 
       max_value = is_greater ? input_value : max_value;
 
@@ -139,7 +144,6 @@ void max_pool_2d_input_iter(
         int32_t input_index = i0 * input_sizes[1] + i1;
         max_index = is_greater ? input_index : max_index;
       }
-      is_first = false;
     }
   }
   *output = max_value;
@@ -160,13 +164,13 @@ struct PoolOffsets {
 // calculate, `output[N, C, d, h, w]`. Also, find the offset of the input for
 // the leading dim indices, `input[N, C]`. Optionally, keep track of the output
 // pooling dimension indices, `[d, h , w]`.
-PoolOffsets find_pool_offsets(
+template<int32_t dims>
+PoolOffsets find_pool_offsets_dim_specific(
     constant int32_t* output_sizes,
     constant int32_t* output_strides,
     constant int32_t* indices_strides,
     constant int32_t* input_strides,
     int32_t work_pooling_dim_indices[3],
-    int32_t dims,
     int32_t leading_dims,
     bool return_indices,
     uint tid) {
@@ -195,12 +199,54 @@ PoolOffsets find_pool_offsets(
   return offsets;
 }
 
+PoolOffsets find_pool_offsets(
+    constant int32_t* output_sizes,
+    constant int32_t* output_strides,
+    constant int32_t* indices_strides,
+    constant int32_t* input_strides,
+    int32_t work_pooling_dim_indices[3],
+    int32_t dims,
+    int32_t leading_dims,
+    bool return_indices,
+    uint tid) {
+
+  switch (dims) {
+    case 5: return find_pool_offsets_dim_specific<5>(
+        output_sizes,
+        output_strides,
+        indices_strides,
+        input_strides,
+        work_pooling_dim_indices,
+        leading_dims,
+        return_indices,
+        tid);
+    case 4: return find_pool_offsets_dim_specific<4>(
+        output_sizes,
+        output_strides,
+        indices_strides,
+        input_strides,
+        work_pooling_dim_indices,
+        leading_dims,
+        return_indices,
+        tid);
+    case 3: return find_pool_offsets_dim_specific<3>(
+        output_sizes,
+        output_strides,
+        indices_strides,
+        input_strides,
+        work_pooling_dim_indices,
+        leading_dims,
+        return_indices,
+        tid);
+  }
+}
+
 // Kernel computes one element of the output per kernel call.
 template <typename T>
 kernel void max_pool(
-    constant void* input_ [[buffer(0)]],
-    device void* output_ [[buffer(1)]],
-    device void* indices_ [[buffer(2)]],
+    constant T* input [[buffer(0)]],
+    device T* output [[buffer(1)]],
+    device int64_t* indices [[buffer(2)]],
     constant PoolingParams<5>& params [[buffer(3)]],
     uint tid [[thread_position_in_grid]]) {
   bool return_indices = params.return_indices;
@@ -217,9 +263,6 @@ kernel void max_pool(
   constant int32_t* dilation = params.dilation.data();
 
   int32_t leading_dims = dims - pooling_dims;
-  constant T* input = reinterpret_cast<constant T*>(input_);
-  device T* output = reinterpret_cast<device T*>(output_);
-  device int64_t* indices = reinterpret_cast<device int64_t*>(indices_);
 
   // This buffer keeps track of the pooling dimension indices of this thread's
   // element of the output. We need to fill it with the proper values below.
@@ -240,8 +283,8 @@ kernel void max_pool(
   indices += offsets.indices;
   input += offsets.input_leading;
 
-  if (pooling_dims == 3) {
-    max_pool_3d_input_iter<T>(
+  switch (pooling_dims) {
+    case 3: return max_pool_3d_input_iter<T>(
         input,
         output,
         indices,
@@ -253,8 +296,7 @@ kernel void max_pool(
         padding,
         dilation,
         return_indices);
-  } else if (pooling_dims == 2) {
-    max_pool_2d_input_iter<T>(
+    case 2: max_pool_2d_input_iter<T>(
         input,
         output,
         indices,
@@ -335,9 +377,9 @@ kernel void max_pool_backward(
 
 #define REGISTER_MAX_POOL_OP(DTYPE)                                       \
   template [[host_name("max_pool_" #DTYPE)]] kernel void max_pool<DTYPE>( \
-      constant void* input_ [[buffer(0)]],                                \
-      device void* output_ [[buffer(1)]],                                 \
-      device void* indices_ [[buffer(2)]],                                \
+      constant DTYPE* input [[buffer(0)]],                                \
+      device DTYPE* output [[buffer(1)]],                                 \
+      device int64_t* indices [[buffer(2)]],                                \
       constant PoolingParams<5>& params [[buffer(3)]],                    \
       uint tid [[thread_position_in_grid]]);
 
