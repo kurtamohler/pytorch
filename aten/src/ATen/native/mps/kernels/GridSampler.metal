@@ -1,4 +1,5 @@
 #include <ATen/native/mps/kernels/GridSampler.h>
+#include <c10/metal/atomic.h>
 #include <c10/metal/utils.h>
 #include <metal_array>
 #include <metal_stdlib>
@@ -9,18 +10,25 @@ using namespace c10::metal;
 struct GridSamplerOffsets {
   int32_t output;
   int32_t input;
+  int32_t grad_input;
   int32_t grid;
+  int32_t grad_grid;
 
-  GridSamplerOffsets() : output(0), input(0), grid(0) {}
+  GridSamplerOffsets()
+      : output(0), input(0), grad_input(0), grid(0), grad_grid(0) {}
 };
 
 // Find offsets into the tensors that this thread will operate on,
 // based on the thread ID.
+// Note: In the backward operation, `output` in this function actually refers to
+// `grad_output`.
 static GridSamplerOffsets find_grid_sampler_offsets(
     constant int32_t* output_sizes,
     constant int32_t* output_strides,
     constant int32_t* input_strides,
+    constant int32_t* grad_input_strides,
     constant int32_t* grid_strides,
+    constant int32_t* grad_grid_strides,
     int32_t sampler_dims,
     uint tid) {
   auto dims = sampler_dims + 2;
@@ -43,6 +51,9 @@ static GridSamplerOffsets find_grid_sampler_offsets(
     //   3 sampler dims: (N, C, Din, Hin, Win)
     if (dim < 2) {
       offsets.input += input_strides[dim] * dim_idx;
+      if (grad_input_strides) {
+        offsets.grad_input += grad_input_strides[dim] * dim_idx;
+      }
     }
 
     // Select the grid coordinates for the output element.
@@ -51,8 +62,14 @@ static GridSamplerOffsets find_grid_sampler_offsets(
     //   3 sampler dims: (N, Dout, Hout, Wout, 3)
     if (dim == 0) {
       offsets.grid += grid_strides[dim] * dim_idx;
+      if (grad_grid_strides) {
+        offsets.grad_grid += grad_grid_strides[dim] * dim_idx;
+      }
     } else if (dim >= 2) {
       offsets.grid += grid_strides[dim - 1] * dim_idx;
+      if (grad_grid_strides) {
+        offsets.grad_grid += grad_grid_strides[dim - 1] * dim_idx;
+      }
     }
   }
 
@@ -114,11 +131,11 @@ T get_tensor_val(
 // This function performs 3D linear interpolation for one value. One way to
 // think of how this works is to imagine a unit cube where each corner of the
 // cube has one scalar value associated with it. Inside the cube, the values
-// change linearly, so the gradient is constant. The values associated with each
-// corner are given by the `input`, indexed at all eight different combinations
-// of the `left_indices` and `right_indices`. Given a 3D coordinate anywhere
-// within the cube, specified by the `scales` argument, we must calculate the
-// value associated with that position.
+// change linearly. The values associated with each corner are given by the
+// `input`, indexed at all eight different combinations of the `left_indices`
+// and `right_indices`. Given a 3D coordinate anywhere within the cube,
+// specified by the `scales` argument, we must calculate the value associated
+// with that position.
 template <typename T>
 T interpolate_linear_3d(
     constant T* input,
@@ -169,27 +186,125 @@ T interpolate_linear_3d(
       scale0_right * scale1_right * scale2_right * h);
 }
 
-// Calculates a single output element.
-// `input` shape:
-//    2 sampler dims: (Hin, Win)
-//    3 sampler dims: (Din, Hin, Win)
-// `coords` values:
-//    2 sampler dims: (Wcoord, Hcoord)
-//    3 sampler dims: (Wcoord, Hcoord, Dcoord)
 template <typename T>
-void grid_sampler_single_element(
-    device T* output,
+T interpolate_linear_3d_backward(
+    device AtomicType_t<T>* grad_input,
+    device AtomicType_t<T>* grad_grid,
+    int32_t grad_grid_offset,
+    constant T* grad_output,
     constant T* input,
-    constant T* coords,
-    int32_t dims,
-    constant int32_t* input_sizes,
     constant int32_t* input_strides,
-    GridSamplerInterpolation interpolation_mode,
-    GridSamplerPadding padding_mode,
-    bool align_corners) {
+    int32_t left_indices[3],
+    int32_t right_indices[3],
+    opmath_t<T> scales[3],
+    opmath_t<T> scale_factors[3]) {
+
+  if (grad_grid) {
+    int32_t v000_idx[3] = {left_indices[0], left_indices[1], left_indices[2]};
+    int32_t v001_idx[3] = {left_indices[0], left_indices[1], right_indices[2]};
+    int32_t v010_idx[3] = {left_indices[0], right_indices[1], left_indices[2]};
+    int32_t v011_idx[3] = {left_indices[0], right_indices[1], right_indices[2]};
+    int32_t v100_idx[3] = {right_indices[0], left_indices[1], left_indices[2]};
+    int32_t v101_idx[3] = {right_indices[0], left_indices[1], right_indices[2]};
+    int32_t v110_idx[3] = {right_indices[0], right_indices[1], left_indices[2]};
+    int32_t v111_idx[3] = {right_indices[0], right_indices[1], right_indices[2]};
+    auto v000 =
+        static_cast<opmath_t<T>>(get_tensor_val<3>(input, input_strides, v000_idx));
+    auto v001 =
+        static_cast<opmath_t<T>>(get_tensor_val<3>(input, input_strides, v001_idx));
+    auto v010 =
+        static_cast<opmath_t<T>>(get_tensor_val<3>(input, input_strides, v010_idx));
+    auto v011 =
+        static_cast<opmath_t<T>>(get_tensor_val<3>(input, input_strides, v011_idx));
+    auto v100 =
+        static_cast<opmath_t<T>>(get_tensor_val<3>(input, input_strides, v100_idx));
+    auto v101 =
+        static_cast<opmath_t<T>>(get_tensor_val<3>(input, input_strides, v101_idx));
+    auto v110 =
+        static_cast<opmath_t<T>>(get_tensor_val<3>(input, input_strides, v110_idx));
+    auto v111 =
+        static_cast<opmath_t<T>>(get_tensor_val<3>(input, input_strides, v111_idx));
+
+    auto x = scales[0];
+    auto y = scales[1];
+    auto z = scales[2];
+
+    auto grad_out_elem = static_cast<opmath_t<T>>(*grad_output);
+
+    AtomicType<T>::atomic_add(
+      grad_grid, grad_grid_offset + 2,
+      static_cast<T>((
+        - v000 * (1-y) * (1-z)
+        - v001 * (1-y) * z
+        - v010 * y * (1-z)
+        - v011 * y * z
+        + v100 * (1-y) * (1-z)
+        + v101 * (1-y) * z
+        + v110 * y * (1-z)
+        + v111 * y * z
+      ) * scale_factors[0] * grad_out_elem)
+      //right_indices[0]
+      //static_cast<T>(v000)
+      //static_cast<T>(- v000 * (1-y) * (1-z))
+      //static_cast<T>(scale_factors[0])
+    );
+
+    AtomicType<T>::atomic_add(
+      grad_grid, grad_grid_offset + 1,
+      static_cast<T>((
+        - v000 * (1-x) * (1-z)
+        - v001 * (1-x) * z
+        + v010 * (1-x) * (1-z)
+        + v011 * (1-x) * z
+        - v100 * x * (1-z)
+        - v101 * x * z
+        + v110 * x * (1-z)
+        + v111 * x * z
+      ) * scale_factors[1] * grad_out_elem)
+      //static_cast<T>(y)
+      //static_cast<T>(scale_factors[1])
+    );
+
+    AtomicType<T>::atomic_add(
+      grad_grid, grad_grid_offset,
+      static_cast<T>((
+        - v000 * (1-x) * (1-y)
+        + v001 * (1-x) * (1-y)
+        - v010 * (1-x) * y
+        + v011 * (1-x) * y
+        - v100 * x * (1-y)
+        + v101 * x * (1-y)
+        - v110 * x * y
+        + v111 * x * y
+      ) * scale_factors[2] * grad_out_elem)
+    );
+  }
+
+  if (grad_input) {
+    // TODO
+    //AtomicType<T>::atomic_add(
+    //    grad_input, grad_input_leading_offset + pool_offset, grad_val);
+  }
+}
+
+template <typename T>
+struct IndicesAndScales {
   int32_t left_indices[3];
   int32_t right_indices[3];
   opmath_t<T> scales[3];
+  opmath_t<T> scale_factors[3];
+};
+
+template <typename T>
+IndicesAndScales<T> find_indices_and_scales(
+    constant T* coords,
+    int32_t dims,
+    constant int32_t* input_sizes,
+    GridSamplerInterpolation interpolation_mode,
+    GridSamplerPadding padding_mode,
+    bool align_corners,
+    bool is_backward=false) {
+  IndicesAndScales<T> indices_and_scales;
 
   // For each dimension, find the pair of indices in the cooresponding dimension
   // of `input` which surround the grid coordinate in that dimension. We'll do
@@ -222,6 +337,7 @@ void grid_sampler_single_element(
     auto input_dim = dims - coord_dim - 1;
     auto input_size = input_sizes[input_dim];
     auto coord = static_cast<opmath_t<T>>(coords[coord_dim]);
+    opmath_t<T> scale_factor = 1;
 
     // Interpret nan as -1
     coord = isnan(coord) ? -1 : coord;
@@ -229,20 +345,34 @@ void grid_sampler_single_element(
     if (!align_corners) {
       // Map unaligned grid space to aligned grid space
       auto corner_alignment_factor = static_cast<opmath_t<T>>(input_size) /
-          static_cast<opmath_t<T>>(input_size - 1);
-      coord = coord * corner_alignment_factor;
+          (static_cast<opmath_t<T>>(input_size) - static_cast<opmath_t<T>>(input_size > 1));
+      coord *= corner_alignment_factor;
+      if (is_backward) {
+        scale_factor *= corner_alignment_factor;
+      }
     }
 
     // Map aligned grid space to input index space
-    coord = (coord + 1) * (static_cast<opmath_t<T>>(input_size - 1) / 2);
+    auto grid_to_index_factor = static_cast<opmath_t<T>>(input_size - 1) / 2;
+    coord = (coord + 1) * grid_to_index_factor;
+    if (is_backward) {
+      scale_factor *= (input_size > 1) ? grid_to_index_factor : 0.5;
+      indices_and_scales.scale_factors[input_dim] = scale_factor;
+    }
 
     // Get the input indices surrounding the coordinate, apply padding to them,
     // and obtain the scaling factor between the two for interpolation.
     auto left_idx = static_cast<int32_t>(floor(coord));
     auto right_idx = static_cast<int32_t>(ceil(coord));
-    left_indices[input_dim] =
+    if (is_backward) {
+      // In the CPU impl of the backward pass, there are some cases where exact
+      // matches actually use the gradient of the coordinate space to the right
+      // side of the match.
+      right_idx += ((right_idx == left_idx) && (!align_corners || input_size > 1));
+    }
+    indices_and_scales.left_indices[input_dim] =
         pad_input_index(left_idx, input_size, padding_mode, align_corners);
-    right_indices[input_dim] =
+    indices_and_scales.right_indices[input_dim] =
         pad_input_index(right_idx, input_size, padding_mode, align_corners);
 
     auto scale = coord - left_idx;
@@ -254,14 +384,86 @@ void grid_sampler_single_element(
       // Need to investigate and fix it.
       scale = (scale <= 0.5) ? 0 : 1;
     }
-    scales[input_dim] = scale;
+    indices_and_scales.scales[input_dim] = scale;
   }
+
+  return indices_and_scales;
+}
+
+// Calculates a single output element.
+// `input` shape:
+//    2 sampler dims: (Hin, Win)
+//    3 sampler dims: (Din, Hin, Win)
+// `coords` values:
+//    2 sampler dims: (Wcoord, Hcoord)
+//    3 sampler dims: (Wcoord, Hcoord, Dcoord)
+template <typename T>
+void grid_sampler_single_element(
+    device T* output,
+    constant T* input,
+    constant T* coords,
+    int32_t dims,
+    constant int32_t* input_sizes,
+    constant int32_t* input_strides,
+    GridSamplerInterpolation interpolation_mode,
+    GridSamplerPadding padding_mode,
+    bool align_corners) {
+  auto indices_and_scales = find_indices_and_scales(
+      coords,
+      dims,
+      input_sizes,
+      interpolation_mode,
+      padding_mode,
+      align_corners);
 
   // Now that we have the bounding indices and scale factor for each dimension
   // of the input, we can interpolate.
   if (dims == 3) {
     *output = interpolate_linear_3d(
-        input, input_strides, left_indices, right_indices, scales);
+        input,
+        input_strides,
+        indices_and_scales.left_indices,
+        indices_and_scales.right_indices,
+        indices_and_scales.scales);
+  }
+}
+
+template <typename T>
+void grid_sampler_backward_single_element(
+    device AtomicType_t<T>* grad_input,
+    device AtomicType_t<T>* grad_grid,
+    int32_t grad_grid_offset,
+    constant T* grad_output,
+    constant T* input,
+    constant T* coords,
+    int32_t dims,
+    constant int32_t* input_sizes,
+    constant int32_t* input_strides,
+    constant int32_t* grad_input_strides,
+    GridSamplerInterpolation interpolation_mode,
+    GridSamplerPadding padding_mode,
+    bool align_corners) {
+  auto indices_and_scales = find_indices_and_scales(
+      coords,
+      dims,
+      input_sizes,
+      interpolation_mode,
+      padding_mode,
+      align_corners,
+      /*is_backward=*/true);
+
+  if (dims == 3) {
+    interpolate_linear_3d_backward(
+        grad_input,
+        grad_grid,
+        grad_grid_offset,
+        grad_output,
+        input,
+        input_strides,
+        indices_and_scales.left_indices,
+        indices_and_scales.right_indices,
+        indices_and_scales.scales,
+        indices_and_scales.scale_factors);
   }
 }
 
@@ -283,7 +485,9 @@ kernel void grid_sampler(
       output_sizes,
       output_strides,
       input_strides,
+      /*grad_input_strides=*/nullptr,
       grid_strides,
+      /*grad_grid_strides=*/nullptr,
       sampler_dims,
       tid);
 
@@ -310,13 +514,86 @@ kernel void grid_sampler(
       align_corners);
 }
 
-#define REGISTER_GRID_SAMPLER_OP(DTYPE)                     \
-  template [[host_name("grid_sampler_" #DTYPE)]]            \
-  kernel void grid_sampler<DTYPE>(                          \
-      device DTYPE * output [[buffer(0)]],                  \
-      constant DTYPE * input [[buffer(1)]],                 \
-      constant DTYPE * grid [[buffer(2)]],                  \
-      constant GridSamplerParams<5> & params [[buffer(3)]], \
+template <typename T>
+kernel void grid_sampler_backward(
+    device AtomicType_t<T>* grad_input [[buffer(0)]],
+    device AtomicType_t<T>* grad_grid [[buffer(1)]],
+    constant T* grad_output [[buffer(2)]],
+    constant T* input [[buffer(3)]],
+    constant T* grid [[buffer(4)]],
+    constant GridSamplerBackwardParams<5>& params [[buffer(5)]],
+    uint tid [[thread_position_in_grid]]) {
+  auto grad_input_sizes = params.grad_input_sizes.data();
+  auto grad_input_strides = params.grad_input_strides.data();
+  auto grad_grid_sizes = params.grad_grid_sizes.data();
+  auto grad_grid_strides = params.grad_grid_strides.data();
+  auto grad_output_sizes = params.grad_output_sizes.data();
+  auto grad_output_strides = params.grad_output_strides.data();
+  auto input_sizes = params.input_sizes.data();
+  auto input_strides = params.input_strides.data();
+  auto grid_strides = params.grid_strides.data();
+  auto sampler_dims = params.sampler_dims;
+  auto input_requires_grad = params.input_requires_grad;
+  auto grid_requires_grad = params.grid_requires_grad;
+
+  auto offsets = find_grid_sampler_offsets(
+      grad_output_sizes,
+      grad_output_strides,
+      input_strides,
+      input_requires_grad ? grad_input_strides : nullptr,
+      grid_strides,
+      grid_requires_grad ? grad_grid_strides : nullptr,
+      sampler_dims,
+      tid);
+
+  grad_output += offsets.output;
+  input += offsets.input;
+  input_sizes += 2;
+  input_strides += 2;
+  if (input_requires_grad) {
+    grad_input += offsets.grad_input;
+    grad_input_sizes += 2;
+    grad_input_strides += 2;
+  }
+  auto coords = grid + offsets.grid;
+
+  auto interpolation_mode = params.interpolation_mode;
+  auto padding_mode = params.padding_mode;
+  auto align_corners = params.align_corners;
+
+
+  grid_sampler_backward_single_element(
+      input_requires_grad ? grad_input : nullptr,
+      grid_requires_grad ? grad_grid : nullptr,
+      /*grad_grid_offset=*/offsets.grad_grid,
+      grad_output,
+      input,
+      coords,
+      sampler_dims,
+      input_sizes,
+      input_strides,
+      grad_input_strides,
+      interpolation_mode,
+      padding_mode,
+      align_corners);
+}
+
+#define REGISTER_GRID_SAMPLER_OP(DTYPE)                            \
+  template [[host_name("grid_sampler_" #DTYPE)]]                   \
+  kernel void grid_sampler<DTYPE>(                                 \
+      device DTYPE * output [[buffer(0)]],                         \
+      constant DTYPE * input [[buffer(1)]],                        \
+      constant DTYPE * grid [[buffer(2)]],                         \
+      constant GridSamplerParams<5> & params [[buffer(3)]],        \
+      uint tid [[thread_position_in_grid]]);                       \
+  template [[host_name("grid_sampler_backward_" #DTYPE)]]          \
+  kernel void grid_sampler_backward(                               \
+      device AtomicType_t<DTYPE>* grad_input [[buffer(0)]],        \
+      device AtomicType_t<DTYPE>* grad_grid [[buffer(1)]],         \
+      constant DTYPE* grad_output [[buffer(2)]],                   \
+      constant DTYPE* input [[buffer(3)]],                         \
+      constant DTYPE* grid [[buffer(4)]],                          \
+      constant GridSamplerBackwardParams<5>& params [[buffer(5)]], \
       uint tid [[thread_position_in_grid]]);
 
 REGISTER_GRID_SAMPLER_OP(float);

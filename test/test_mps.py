@@ -12352,6 +12352,50 @@ class TestConsistency(TestCaseMPS):
                 atol, rtol = 5e-3, 5e-3
             self.assertEqual(cpu_grad_inputs, mps_grad_inputs, atol=atol, rtol=rtol)
 
+    @dtypes(torch.float)
+    def test_grid_sampler_3d_backward(self, device, dtype):
+        cases = [
+            # input_shape, grid_shape, kwargs
+            [(1, 1, 1, 1, 4), (1, 1, 1, 10, 3), dict(align_corners=True)],
+            [(20, 1, 1, 1, 4), (20, 1, 1, 10, 3), dict(align_corners=True)],
+            [(20, 1, 1, 4, 1), (20, 1, 1, 10, 3), dict(align_corners=True)],
+            [(20, 1, 4, 1, 1), (20, 1, 1, 10, 3), dict(align_corners=True)],
+            [(20, 1, 1, 1, 4), (20, 1, 10, 1, 3), dict(align_corners=True)],
+            [(20, 1, 1, 4, 1), (20, 1, 10, 1, 3), dict(align_corners=True)],
+            [(20, 1, 4, 1, 1), (20, 1, 10, 1, 3), dict(align_corners=True)],
+            [(20, 1, 1, 1, 4), (20, 10, 1, 1, 3), dict(align_corners=True)],
+            [(20, 1, 1, 4, 1), (20, 10, 1, 1, 3), dict(align_corners=True)],
+            [(20, 1, 4, 1, 1), (20, 10, 1, 1, 3), dict(align_corners=True)],
+            [(200, 1, 40, 50, 60), (200, 10, 11, 12, 3), dict(align_corners=True)],
+            [(200, 10, 40, 50, 60), (200, 10, 11, 12, 3), dict(align_corners=True)],
+        ]
+
+        for input_shape, grid_shape, kwargs in cases:
+            input = torch.randn(input_shape, dtype=dtype)
+            grid = 4 * torch.randn(grid_shape, dtype=dtype)
+
+            input_cpu = input.clone()
+            input_cpu.requires_grad_(True)
+            grid_cpu = grid.clone()
+            grid_cpu.requires_grad_(True)
+
+            output_cpu = torch.nn.functional.grid_sample(input_cpu, grid_cpu, **kwargs)
+
+            input_mps = input.clone().to('mps')
+            input_mps.requires_grad_(True)
+            grid_mps = grid.clone().to('mps')
+            grid_mps.requires_grad_(True)
+
+            output_mps = torch.nn.functional.grid_sample(input_mps, grid_mps, **kwargs)
+
+            self.assertEqual(output_mps.detach().to('cpu'), output_cpu.detach())
+
+            output_cpu.backward(torch.ones_like(output_cpu))
+            output_mps.backward(torch.ones_like(output_mps))
+
+            self.assertEqual(grid_mps.grad.to('cpu'), grid_cpu.grad, atol=1e-4, rtol=1e-4)
+
+
     # The CPU impl of grid_sampler_3d gives a large amount of error for half
     # precision types. So instead of testing MPS-vs-CPU outputs, test
     # full-vs-half precision dtypes for MPS.
