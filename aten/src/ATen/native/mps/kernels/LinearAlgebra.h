@@ -1,16 +1,13 @@
 #pragma onces
 #include <c10/metal/common.h>
 
-template <unsigned N = c10::metal::max_ndim>
 struct OrgqrParams {
-  int32_t num_batch_dims;
-
+  uint32_t num_batches;
   uint32_t m;
   uint32_t n;
   uint32_t k;
 
-  ::c10::metal::array<uint32_t, N> A_strides;
-  ::c10::metal::array<uint32_t, N> tau_strides;
-  ::c10::metal::array<uint32_t, N> H_strides;
-  ::c10::metal::array<uint32_t, N> H_sizes;
+  ::c10::metal::array<uint32_t, 3> A_strides;
+  ::c10::metal::array<uint32_t, 2> tau_strides;
+  ::c10::metal::array<uint32_t, 3> H_strides;
 };

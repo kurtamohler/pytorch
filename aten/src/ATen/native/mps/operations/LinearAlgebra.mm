@@ -1239,67 +1239,77 @@ static void cholesky_stub_impl(const Tensor& out, const Tensor& info, bool upper
   }
 }
 
-static Tensor& orgqr_stub_impl(Tensor& self, const Tensor& tau) {
-  if (self.numel() == 0) {
-    return self;
+static Tensor& orgqr_stub_impl(Tensor& self_, const Tensor& tau_) {
+  if (self_.numel() == 0) {
+    return self_;
   }
 
-  auto m = self.size(-2);
-  auto n = self.size(-1);
-  auto k = tau.size(-1);
+  auto m = self_.size(-2);
+  auto n = self_.size(-1);
+  auto k = tau_.size(-1);
 
-  if (tau.numel() == 0) {
-    auto I = eye(m, self.scalar_type(), std::nullopt, self.device());
-    return self.copy_(I.slice(-1, 0, n));
+  if (tau_.numel() == 0) {
+    auto I = eye(m, self_.scalar_type(), std::nullopt, self_.device());
+    return self_.copy_(I.slice(-1, 0, n));
   }
 
-  auto num_batch_dims = self.dim() - 2;
-  auto batch_sizes = self.sizes().slice(0, num_batch_dims);
+  auto num_batch_dims = self_.dim() - 2;
 
-  std::vector<int64_t> H_sizes(num_batch_dims + 2);
+  std::vector<int64_t> output_sizes(self_.dim());
+  int64_t num_batches = 1;
   for (auto dim : c10::irange(num_batch_dims)) {
-    H_sizes[dim] = self.size(dim);
+    auto dim_size = self_.size(dim);
+    output_sizes[dim] = dim_size;
+    num_batches *= dim_size;
   }
-  H_sizes[num_batch_dims] = m;
-  H_sizes[num_batch_dims + 1] = m;
+  output_sizes[num_batch_dims] = m;
+  output_sizes[num_batch_dims + 1] = m;
 
-  auto H = at::empty(H_sizes, self.options().memory_format(MemoryFormat::Contiguous));
+
+  auto self = self_.reshape({num_batches, m, n});
+  auto tau = tau_.reshape({num_batches, k});
+
+  auto H = at::empty({num_batches, m, m}, self.options().memory_format(MemoryFormat::Contiguous));
   auto H_prod = at::empty_like(H);
 
   OrgqrParams params;
 
-  params.num_batch_dims = num_batch_dims;
+  params.num_batches = num_batches;
   params.m = m;
   params.n = n;
   params.k = k;
 
   for (const auto dim : c10::irange(self.dim())) {
     params.A_strides[dim] = self.stride(dim);
+    params.H_strides[dim] = H.stride(dim);
 
     if (dim < tau.dim()) {
       params.tau_strides[dim] = tau.stride(dim);
     }
-
-    params.H_strides[dim] = H.stride(dim);
-    params.H_sizes[dim] = H.size(dim);
   }
 
   auto num_threads = H.numel();
   MPSStream* stream = getCurrentMPSStream();
 
-  dispatch_sync_with_rethrow(stream->queue(), ^() {
-    @autoreleasepool {
-      id<MTLComputeCommandEncoder> compute_encoder = stream->commandEncoder();
-      auto pipeline_state = lib.getPipelineStateForFunc(fmt::format("orgqr_{}", scalarToMetalTypeString(self)));
-      getMPSProfiler().beginProfileKernel(pipeline_state, "orgqr", {self, tau});
-      [compute_encoder setComputePipelineState:pipeline_state];
-      mtl_setArgs(compute_encoder, self, tau, H, H_prod, params);
-      mtl_dispatch1DJob(compute_encoder, pipeline_state, num_threads);
-      getMPSProfiler().endProfileKernel(pipeline_state);
-    }
-  });
+  for (auto i : c10::irange(k)) {
+    dispatch_sync_with_rethrow(stream->queue(), ^() {
+      @autoreleasepool {
+        id<MTLComputeCommandEncoder> compute_encoder = stream->commandEncoder();
+        auto pipeline_state = lib.getPipelineStateForFunc(fmt::format("orgqr_create_H_{}", scalarToMetalTypeString(self)));
+        getMPSProfiler().beginProfileKernel(pipeline_state, "orgqr", {self, tau});
+        [compute_encoder setComputePipelineState:pipeline_state];
+        mtl_setArgs(compute_encoder, self, tau, (i == 0) ? H_prod : H, params, i);
+        mtl_dispatch1DJob(compute_encoder, pipeline_state, num_threads);
+        getMPSProfiler().endProfileKernel(pipeline_state);
+      }
+    });
 
-  return self;
+    if (i > 0) {
+      do_metal_bmm(H_prod, H, H_prod);
+    }
+  }
+
+  return self_.copy_(H_prod.reshape(output_sizes).slice(-1, 0, n));
 }
 
 } // namespace mps
