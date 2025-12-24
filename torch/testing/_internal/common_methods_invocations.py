@@ -12144,6 +12144,9 @@ op_db: list[OpInfo] = [
                DecorateInfo(unittest.expectedFailure, 'TestFakeTensor', 'test_fake_autocast'),
                # Booleans mismatch: AssertionError: False is not true
                DecorateInfo(unittest.expectedFailure, 'TestFakeTensor', 'test_fake'),
+               # NotImplementedError: "_local_scalar_dense_mps" not implemented for 'ComplexHalf'
+               DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
+               DecorateInfo(unittest.expectedFailure, 'TestCommon', device_type='mps', dtypes=(torch.complex32,)),
            )),
     OpInfo('arange',
            dtypes=all_types_and(torch.bfloat16, torch.float16),
@@ -14016,6 +14019,8 @@ op_db: list[OpInfo] = [
                DecorateInfo(unittest.skip("Skipped!"), 'TestMeta', 'test_meta_outplace'),
                DecorateInfo(unittest.skip("Skipped!"), 'TestMeta', 'test_dispatch_symbolic_meta_outplace_all_strides'),
                DecorateInfo(unittest.skip("Skipped!"), 'TestFakeTensor', 'test_fake_crossref_backward_no_amp'),
+               # NotImplementedError: The operator 'aten::_to_sparse_csr' is not currently implemented for the MPS device
+               DecorateInfo(unittest.expectedFailure, 'TestCommon', device_type='mps'),
            )),
     OpInfo('sparse.mm',
            dtypes=floating_types_and(torch.bfloat16, torch.float16),
@@ -14219,9 +14224,13 @@ op_db: list[OpInfo] = [
     OpInfo('kthvalue',
            dtypes=all_types_and(torch.bfloat16, torch.float16),
            dtypesIfHpu=custom_types(torch.float32, torch.bfloat16, torch.int32),
+           dtypesIfMPS=all_types_and(torch.bfloat16, torch.float16, torch.bool),
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
            sample_inputs_func=sample_inputs_kthvalue,
+           skips=(
+               DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_non_standard_bool_values', device_type='mps'),
+           ),
            error_inputs_func=error_inputs_kthvalue),
     BinaryUfuncInfo('le',
                     ref=np.less_equal,
@@ -14978,11 +14987,25 @@ op_db: list[OpInfo] = [
                         DecorateInfo(unittest.skip("Skipped!"),
                                      'TestBinaryUfuncs',
                                      'test_reference_numerics_extremal_values'),
+                        # NotImplementedError: The operator 'aten::heaviside.out' is not currently implemented for the MPS device
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_variant_consistency_eager', device_type='mps'),
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out_warning', device_type='mps'),
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out', device_type='mps'),
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_noncontiguous_samples', device_type='mps'),
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_non_standard_bool_values', device_type='mps'),
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
                     )),
     BinaryUfuncInfo('lcm',
                     ref=np.lcm,
                     dtypes=integral_types_and(),
                     supports_autograd=False,
+                    skips=(
+                        # The operator 'aten::lcm.out' is not currently implemented for the MPS device.
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_noncontiguous_samples', device_type='mps'),
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out', device_type='mps'),
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out_warning', device_type='mps'),
+                    ),
                     supports_rhs_python_scalar=False),
     BinaryUfuncInfo('gcd',
                     ref=np.gcd,
@@ -14993,7 +15016,13 @@ op_db: list[OpInfo] = [
                         DecorateInfo(unittest.expectedFailure,
                                      'TestBinaryUfuncs',
                                      'test_reference_numerics_small_values',
-                                     dtypes=(torch.int8,)),)),
+                                     dtypes=(torch.int8,)),
+                        # NotImplementedError: The operator 'aten::gcd.out' is not currently implemented for the MPS device
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out_warning', device_type='mps'),
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out', device_type='mps'),
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_noncontiguous_samples', device_type='mps'),
+                    )),
     BinaryUfuncInfo('isclose',
                     ref=np.isclose,
                     dtypes=all_types_and_complex_and(torch.bool, torch.float16, torch.bfloat16),
@@ -17574,6 +17603,8 @@ op_db: list[OpInfo] = [
            skips=(
                # Strides are not the same!
                DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out'),
+               # Error: The operator 'aten::geqrf' is not currently implemented for the MPS device
+               DecorateInfo(unittest.expectedFailure, 'TestCommon', device_type='mps'),
            )),
     OpInfo('permute',
            ref=np.transpose,
@@ -17696,6 +17727,15 @@ op_db: list[OpInfo] = [
                         # Inplace always promotes to double and thus other floating dtypes are not supported
                         DecorateInfo(unittest.expectedFailure, 'TestMeta', 'test_meta_inplace',
                                      dtypes=[torch.bfloat16, torch.float16, torch.float32]),
+                        # TypeError: Cannot convert a MPS Tensor to float64 dtype
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_variant_consistency_eager', device_type='mps'),
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_non_standard_bool_values', device_type='mps'),
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_noncontiguous_samples', device_type='mps'),
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out', device_type='mps'),
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out_requires_grad_error', device_type='mps'),
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_promotes_int_to_float', device_type='mps'),
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out_warning', device_type='mps'),
                     )),
     OpInfo('qr',
            op=torch.qr,
@@ -18510,9 +18550,14 @@ op_db: list[OpInfo] = [
     OpInfo('lerp',
            dtypes=floating_and_complex_types_and(torch.bfloat16, torch.half),
            dtypesIfCUDA=floating_and_complex_types_and(torch.chalf, torch.half, torch.bfloat16),
+           dtypesIfMPS=all_types_and_complex_and(torch.bfloat16, torch.half, torch.bool),
            sample_inputs_func=sample_inputs_lerp,
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
+           skips=(
+               # AssertionError: Tensor-likes are not equal!
+               DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_non_standard_bool_values', device_type='mps'),
+           ),
            assert_autodiffed=True),
     UnaryUfuncInfo('angle',
                    ref=np.angle,
@@ -18985,6 +19030,18 @@ op_db: list[OpInfo] = [
            check_batched_forward_grad=False,
            sample_inputs_func=sample_inputs_index,
            reference_inputs_func=partial(sample_inputs_index, reference=True),
+           skips=(
+               # Exception: index_fill_(): Complex types are yet not supported
+               DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
+               DecorateInfo(
+                   unittest.expectedFailure, 'TestCommon', 'test_variant_consistency_eager',
+                   device_type='mps', dtypes=(torch.complex64,)
+               ),
+               DecorateInfo(
+                   unittest.expectedFailure, 'TestCommon', 'test_noncontiguous_samples',
+                   device_type='mps', dtypes=(torch.complex64,)
+               ),
+           ),
            gradcheck_nondet_tol=GRADCHECK_NONDET_TOL),
     OpInfo('index_select',
            dtypes=all_types_and_complex_and(torch.bool, torch.float16, torch.bfloat16, torch.chalf),
@@ -22413,6 +22470,18 @@ python_ref_db = [
     PythonRefInfo(
         "_refs.lerp",
         torch_opinfo_name="lerp",
+        skips=(
+            # TypeError: Cannot convert a MPS Tensor to float64 dtype
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref', device_type='mps',
+                dtypes=(torch.bfloat16, torch.bool, torch.float16, torch.int16, torch.int32, torch.int64, torch.int8, torch.uint8)
+            ),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_python_ref_meta', device_type='mps', dtypes=(torch.bool,)),
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref_torch_fallback', device_type='mps',
+                dtypes=(torch.bfloat16, torch.bool, torch.float16, torch.int16, torch.int32, torch.int64, torch.int8, torch.uint8)
+            ),
+        ),
     ),
     PythonRefInfo(
         "_refs.ones",
@@ -22911,6 +22980,9 @@ python_ref_db = [
         skips=(
             # RuntimeError: Cannot cast FakeTensor(FakeTensor(..., device='meta', size=()), cpu) to number
             DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_python_ref_meta'),
+            # NotImplementedError: "_local_scalar_dense_mps" not implemented for 'ComplexHalf'
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', device_type='mps', dtypes=(torch.complex32,)),
             # ValueError: Can't convert a tensor with 10 elements to a number!
             DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_python_ref_errors'),),
     ),
@@ -23893,6 +23965,13 @@ python_ref_db = [
             DecorateInfo(unittest.skip("Skipped!"), 'TestBinaryUfuncs',
                          'test_reference_numerics_extremal_values',
                          dtypes=[torch.complex64, torch.complex128]),
+            # TypeError: Cannot convert a MPS Tensor to float64 dtype
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_python_ref_torch_fallback', device_type='mps'),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_python_ref_meta', device_type='mps'),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_python_ref', device_type='mps'),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out', device_type='mps'),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out_warning', device_type='mps'),
         ),
     ),
     ElementwiseBinaryPythonRefInfo(
@@ -23984,6 +24063,13 @@ python_ref_db = [
                          'TestBinaryUfuncs',
                          'test_reference_numerics_small_values',
                          dtypes=(torch.int8,)),
+            # NotImplementedError: The operator 'aten::gcd.out' is not currently implemented for the MPS device
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_python_ref_torch_fallback', device_type='mps'),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_python_ref_meta', device_type='mps'),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_python_ref', device_type='mps'),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out_warning', device_type='mps'),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out', device_type='mps'),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
         ),
     ),
     ElementwiseBinaryPythonRefInfo(
@@ -24003,6 +24089,9 @@ python_ref_db = [
             DecorateInfo(unittest.skip("Skipped!"),
                          'TestBinaryUfuncs',
                          'test_reference_numerics_extremal_values'),
+            # NotImplementedError: The operator 'aten::heaviside.out' is not currently implemented for the MPS device
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_python_ref_torch_fallback', device_type='mps'),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_python_ref', device_type='mps'),
         ),
     ),
     ElementwiseBinaryPythonRefInfo(
@@ -24033,6 +24122,15 @@ python_ref_db = [
     ElementwiseBinaryPythonRefInfo(
         "_refs.lcm",
         torch_opinfo_name="lcm",
+        skips=(
+            # The operator 'aten::lcm.out' is not currently implemented for the MPS device.
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out', device_type='mps'),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out_warning', device_type='mps'),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_python_ref', device_type='mps'),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_python_ref_meta', device_type='mps'),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_python_ref_torch_fallback', device_type='mps'),
+        ),
     ),
     ElementwiseBinaryPythonRefInfo(
         "_refs.le",
