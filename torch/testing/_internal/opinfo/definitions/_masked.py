@@ -598,6 +598,16 @@ op_db: list[OpInfo] = [
             DecorateInfo(
                 unittest.skip("Skipped!"), "TestJit", "test_variant_consistency_jit"
             ),
+            # Exception: cumulative ops are not yet supported for complex
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
+            ),
+            DecorateInfo(
+                unittest.expectedFailure,
+                "TestCommon",
+                device_type="mps",
+                dtypes=(torch.complex64,),
+            ),
         ),
         # Can reuse the same inputs; dim is required in both
         sample_inputs_func=sample_inputs_masked_cumops,
@@ -634,6 +644,16 @@ op_db: list[OpInfo] = [
                 "TestInductorOpInfo",
                 "test_comprehensive",
                 device_type="cuda",
+            ),
+            # Exception: cumulative ops are not yet supported for complex
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
+            ),
+            DecorateInfo(
+                unittest.expectedFailure,
+                "TestCommon",
+                device_type="mps",
+                dtypes=(torch.complex64,),
             ),
         ),
         # Can reuse the same inputs; dim is required in both
@@ -1062,6 +1082,14 @@ op_db: list[OpInfo] = [
         "masked.log_softmax",
         method_variant=None,
         dtypes=floating_types_and(torch.half, torch.bfloat16),
+        dtypesIfMPS=floating_types_and(
+            torch.half,
+            torch.bfloat16,
+            torch.uint8,
+            torch.int32,
+            torch.int16,
+            torch.int8,
+        ),
         sample_inputs_func=sample_inputs_masked_softmax,
         skips=(
             DecorateInfo(
@@ -1136,6 +1164,16 @@ op_db: list[OpInfo] = [
             ),
             DecorateInfo(
                 unittest.expectedFailure, "TestJit", "test_variant_consistency_jit"
+            ),
+            # Exception: norm ops are not supported for complex yet
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
+            ),
+            DecorateInfo(
+                unittest.expectedFailure,
+                "TestCommon",
+                device_type="mps",
+                dtypes=(torch.complex64,),
             ),
         ),
         gradcheck_wrapper=gradcheck_wrapper_masked_operation,
