@@ -14575,6 +14575,11 @@ op_db: list[OpInfo] = [
                                     dtypes=all_types_and_complex_and(torch.half, torch.bfloat16)),
                        DecorateInfo(unittest.skip("Skipped!"), 'TestCommon', 'test_variant_consistency_eager',
                                     dtypes=all_types_and_complex_and(torch.half, torch.bfloat16)),
+                       # AssertionError: UserWarning not triggered : Resized a non-empty tensor but did not warn about it.
+                       DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out_warning', device_type='mps'),
+                       # AssertionError: RuntimeError not raised : Expected RuntimeError when calling with
+                       # input.device=mps:0 and out.device=cpu.
+                       DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out', device_type='mps'),
                    )),
     BinaryUfuncInfo('lt',
                     ref=np.less,
@@ -15074,6 +15079,13 @@ op_db: list[OpInfo] = [
                     dtypesIfHpu=custom_types(torch.float32, torch.bfloat16, torch.int32, torch.int8, torch.bool),
                     supports_autograd=False,
                     always_returns_bool=True,
+                    skips=(
+                        # AssertionError: UserWarning not triggered : Resized a non-empty tensor but did not warn about it.
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out_warning', device_type='mps'),
+                        # AssertionError: RuntimeError not raised : Expected RuntimeError when calling with
+                        # input.device=mps:0 and out.device=cpu.
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out', device_type='mps'),
+                    ),
                     supports_rhs_python_scalar=False),
     BinaryUfuncInfo('logical_or',
                     ref=np.logical_or,
@@ -15081,6 +15093,13 @@ op_db: list[OpInfo] = [
                     dtypesIfHpu=custom_types(torch.float32, torch.bfloat16, torch.int8, torch.bool),
                     supports_autograd=False,
                     always_returns_bool=True,
+                    skips=(
+                        # AssertionError: UserWarning not triggered : Resized a non-empty tensor but did not warn about it.
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out_warning', device_type='mps'),
+                        # AssertionError: RuntimeError not raised : Expected RuntimeError when calling with
+                        # input.device=mps:0 and out.device=cpu.
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out', device_type='mps'),
+                    ),
                     supports_rhs_python_scalar=False),
     BinaryUfuncInfo('logical_xor',
                     ref=np.logical_xor,
@@ -15090,6 +15109,11 @@ op_db: list[OpInfo] = [
                     always_returns_bool=True,
                     supports_rhs_python_scalar=False,
                     skips=(
+                        # AssertionError: UserWarning not triggered : Resized a non-empty tensor but did not warn about it.
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out_warning', device_type='mps'),
+                        # AssertionError: RuntimeError not raised : Expected RuntimeError when calling with
+                        # input.device=mps:0 and out.device=cpu.
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out', device_type='mps'),
                     )),
     BinaryUfuncInfo('bitwise_and',
                     ref=np.bitwise_and,
@@ -15241,6 +15265,8 @@ op_db: list[OpInfo] = [
                    unittest.expectedFailure, 'TestConsistency', 'test_output_grad_match',
                    device_type='mps', dtypes=(torch.float32,)
                ),
+               # AssertionError: Tensor-likes are not close!
+               DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_non_standard_bool_values', device_type='mps'),
            ),
            supports_out=True),
     OpInfo(
@@ -18480,6 +18506,8 @@ op_db: list[OpInfo] = [
                                     dtypes=[torch.bfloat16, torch.float16, torch.float32, torch.float64]),
                        DecorateInfo(unittest.skip("Skipped! sparse backward not supported"),
                                     'TestSparseUnaryUfuncs', 'test_sparse_fn_grad'),
+                       # The following dtypes worked in backward but are not listed by the OpInfo: {torch.complex32}.
+                       DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
                    )),
     OpInfo('split',
            dtypes=all_types_and_complex_and(torch.bfloat16, torch.half, torch.bool, torch.chalf),
@@ -24351,6 +24379,15 @@ python_ref_db = [
                          'test_reference_numerics_extremal',
                          dtypes=[torch.bfloat16, torch.float16, torch.float32,
                                  torch.float64]),
+            # TypeError: Trying to convert ComplexDouble to the MPS backend but it does not have support for that dtype.
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref',
+                device_type='mps', dtypes=(torch.complex32,)
+            ),
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref_torch_fallback',
+                device_type='mps', dtypes=(torch.complex32,)
+            ),
         ),
     ),
     ElementwiseUnaryPythonRefInfo(
@@ -24386,6 +24423,15 @@ python_ref_db = [
             DecorateInfo(unittest.skip("Skipped!"), 'TestUnaryUfuncs',
                          'test_reference_numerics_small',
                          dtypes=[torch.cfloat]),
+            # TypeError: Trying to convert ComplexDouble to the MPS backend but it does not have support for that dtype.
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref',
+                device_type='mps', dtypes=(torch.complex64,)
+            ),
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref_torch_fallback',
+                device_type='mps', dtypes=(torch.complex64,)
+            ),
         ),
     ),
     ElementwiseUnaryPythonRefInfo(
@@ -24414,6 +24460,18 @@ python_ref_db = [
         "_refs.softmax",
         torch_opinfo_name="softmax",
         torch_opinfo_variant_name="with_dtype",
+        skips=(
+            # TypeError: Cannot convert a MPS Tensor to float64 dtype as the MPS framework doesn't support float64
+            # TypeError: Trying to convert ComplexDouble to the MPS backend but it does not have support for that dtype.
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref', device_type='mps',
+                dtypes=(torch.float32, torch.float16, torch.complex64),
+            ),
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref_torch_fallback', device_type='mps',
+                dtypes=(torch.float32, torch.float16, torch.complex64),
+            ),
+        ),
     ),
     ElementwiseUnaryPythonRefInfo(
         "_refs.sqrt",
@@ -24514,6 +24572,14 @@ python_ref_db = [
         torch_opinfo_name="softmax",  # alias
         torch_opinfo_variant_name="with_dtype",
         supports_out=False,
+        skips=(
+            # TypeError: Cannot convert a MPS Tensor to float64 dtype as the MPS framework doesn't support float64
+            # TypeError: Trying to convert ComplexDouble to the MPS backend but it does not have support for that dtype.
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref', device_type='mps',
+                dtypes=(torch.float32, torch.float16, torch.complex64),
+            ),
+        ),
     ),
     #
     # Elementwise Unary Special OpInfos
@@ -24732,6 +24798,17 @@ python_ref_db = [
     ElementwiseUnaryPythonRefInfo(
         "_refs.nn.functional.prelu",
         torch_opinfo_name="nn.functional.prelu",
+        skips=(
+            # TypeError: Cannot convert a MPS Tensor to float64 dtype as the MPS framework doesn't support float64
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref',
+                device_type='mps', dtypes=(torch.float16, torch.bfloat16, torch.float32)
+            ),
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref_torch_fallback',
+                device_type='mps', dtypes=(torch.float16, torch.bfloat16, torch.float32)
+            ),
+        ),
     ),
     ElementwiseUnaryPythonRefInfo(
         "_refs.nn.functional.relu",
@@ -24781,6 +24858,14 @@ python_ref_db = [
         torch_opinfo_name="softmax",  # alias
         torch_opinfo_variant_name="with_dtype",
         supports_out=False,
+        skips=(
+            # TypeError: Cannot convert a MPS Tensor to float64 dtype as the MPS framework doesn't support float64
+            # TypeError: Trying to convert ComplexDouble to the MPS backend but it does not have support for that dtype.
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref', device_type='mps',
+                dtypes=(torch.float32, torch.float16, torch.complex64),
+            ),
+        ),
     ),
     PythonRefInfo(
         "_refs.nn.functional.softmin",
@@ -24863,6 +24948,15 @@ python_ref_db = [
                          dtypes=(torch.complex64, torch.complex128),
                          device_type='cpu',
                          active_if=(IS_MACOS or IS_WINDOWS)),
+            # TypeError: Cannot convert a MPS Tensor to float64 dtype as the MPS framework doesn't support float64
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref',
+                device_type='mps', dtypes=(torch.float16, torch.bfloat16)
+            ),
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref_torch_fallback',
+                device_type='mps', dtypes=(torch.float16, torch.bfloat16)
+            ),
         ),
     ),
     ElementwiseUnaryPythonRefInfo(
@@ -24872,6 +24966,17 @@ python_ref_db = [
     ElementwiseUnaryPythonRefInfo(
         "_refs.nn.functional.softshrink",
         torch_opinfo_name="nn.functional.softshrink",
+        skips=(
+            # TypeError: Cannot convert a MPS Tensor to float64 dtype as the MPS framework doesn't support float64
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref',
+                device_type='mps', dtypes=(torch.float16, torch.bfloat16, torch.float32)
+            ),
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref_torch_fallback',
+                device_type='mps', dtypes=(torch.float16, torch.bfloat16, torch.float32)
+            ),
+        ),
     ),
     #
     # Elementwise Binary Reference OpInfos
@@ -25208,6 +25313,17 @@ python_ref_db = [
     ElementwiseUnaryPythonRefInfo(
         "_refs.logical_not",
         torch_opinfo_name="logical_not",
+        skips=(
+            # RuntimeError: Undefined type ComplexDouble
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref_torch_fallback',
+                device_type='mps', dtypes=(torch.complex64,)
+            ),
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref',
+                device_type='mps', dtypes=(torch.complex64,)
+            ),
+        ),
     ),
     ElementwiseBinaryPythonRefInfo(
         "_refs.logical_or",
@@ -25260,6 +25376,9 @@ python_ref_db = [
                 unittest.expectedFailure, 'TestCommon', 'test_python_ref_torch_fallback',
                 dtypes=(torch.complex32,), device_type='cuda'
             ),
+            # TypeError: Trying to convert ComplexDouble to the MPS backend but it does not have support for that dtype
+            # NotImplementedError: "_local_scalar_dense_mps" not implemented for 'ComplexHalf'
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', device_type='mps', dtypes=(torch.complex32,)),
         )
     ),
     ElementwiseBinaryPythonRefInfo(
@@ -25384,6 +25503,20 @@ python_ref_db = [
                          'TestBinaryUfuncs',
                          'test_reference_numerics_small_values',
                          dtypes=(torch.uint8,)),
+            # TypeError: Cannot convert a MPS Tensor to float64 dtype as the MPS framework doesn't support float64
+            # NotImplementedError: "_local_scalar_dense_mps" not implemented for 'ComplexHalf'
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref_torch_fallback',
+                device_type='mps', dtypes=(torch.float16, torch.complex32)
+            ),
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref_meta',
+                device_type='mps', dtypes=(torch.complex32,)
+            ),
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref',
+                device_type='mps', dtypes=(torch.float16, torch.complex32, torch.bfloat16)
+            ),
         ),
     ),
     ElementwiseBinaryPythonRefInfo(

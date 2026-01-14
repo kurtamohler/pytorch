@@ -616,6 +616,12 @@ op_db: list[OpInfo] = [
         dtypes=all_types_and(torch.bool),
         ref=scipy.special.i1 if TEST_SCIPY else None,
         supports_autograd=False,
+        skips=(
+            # The following dtypes worked in forward but are not listed by the OpInfo: {torch.float16, torch.bfloat16}.
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
+            ),
+        ),
     ),
     UnaryUfuncInfo(
         "special.modified_bessel_k0",
@@ -838,6 +844,21 @@ python_ref_db: list[OpInfo] = [
                 "test_reference_numerics_large",
                 dtypes=(torch.int8,),
             ),
+            # TypeError: Cannot convert a MPS Tensor to float64 dtype as the MPS framework doesn't support float64
+            DecorateInfo(
+                unittest.expectedFailure,
+                "TestCommon",
+                "test_python_ref",
+                device_type="mps",
+                dtypes=(torch.float16,),
+            ),
+            DecorateInfo(
+                unittest.expectedFailure,
+                "TestCommon",
+                "test_python_ref_torch_fallback",
+                device_type="mps",
+                dtypes=(torch.float16,),
+            ),
         ),
     ),
     ElementwiseUnaryPythonRefInfo(
@@ -858,6 +879,23 @@ python_ref_db: list[OpInfo] = [
         "_refs.special.ndtr",
         torch_opinfo_name="special.ndtr",
         op_db=op_db,
+        skips=(
+            # TypeError: Cannot convert a MPS Tensor to float64 dtype as the MPS framework doesn't support float64
+            DecorateInfo(
+                unittest.expectedFailure,
+                "TestCommon",
+                "test_python_ref",
+                device_type="mps",
+                dtypes=(torch.float16, torch.bfloat16),
+            ),
+            DecorateInfo(
+                unittest.expectedFailure,
+                "TestCommon",
+                "test_python_ref_torch_fallback",
+                device_type="mps",
+                dtypes=(torch.float16, torch.bfloat16),
+            ),
+        ),
     ),
     ElementwiseUnaryPythonRefInfo(
         "_refs.special.ndtri",
