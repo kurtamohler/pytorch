@@ -236,6 +236,10 @@ op_db: list[OpInfo] = [
         skips=(
             # Reference reference_inputs nans and infs on cuda and nan, inf, 0., -inf for cpu
             DecorateInfo(unittest.expectedFailure, "TestCommon", "test_compare_cpu"),
+            # The following dtypes worked in forward but are not listed by the OpInfo: {torch.float16, torch.bfloat16}.
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
+            ),
         ),
     ),
     # TODO: FIXME
@@ -358,6 +362,12 @@ op_db: list[OpInfo] = [
         dtypes=all_types_and(torch.bool),
         ref=scipy.special.j0 if TEST_SCIPY else None,
         supports_autograd=False,
+        skips=(
+            # The following dtypes worked in forward but are not listed by the OpInfo: {torch.float16, torch.bfloat16}.
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
+            ),
+        ),
     ),
     UnaryUfuncInfo(
         "special.bessel_j1",
@@ -372,6 +382,12 @@ op_db: list[OpInfo] = [
         dtypes=all_types_and(torch.bool),
         ref=scipy.special.j1 if TEST_SCIPY else None,
         supports_autograd=False,
+        skips=(
+            # The following dtypes worked in forward but are not listed by the OpInfo: {torch.float16, torch.bfloat16}.
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
+            ),
+        ),
     ),
     UnaryUfuncInfo(
         "special.bessel_y0",
@@ -386,6 +402,12 @@ op_db: list[OpInfo] = [
         dtypes=all_types_and(torch.bool),
         ref=scipy.special.y0 if TEST_SCIPY else None,
         supports_autograd=False,
+        skips=(
+            # The following dtypes worked in forward but are not listed by the OpInfo: {torch.float16, torch.bfloat16}.
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
+            ),
+        ),
     ),
     UnaryUfuncInfo(
         "special.bessel_y1",
@@ -400,6 +422,12 @@ op_db: list[OpInfo] = [
         dtypes=all_types_and(torch.bool),
         ref=scipy.special.y1 if TEST_SCIPY else None,
         supports_autograd=False,
+        skips=(
+            # The following dtypes worked in forward but are not listed by the OpInfo: {torch.float16, torch.bfloat16}.
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
+            ),
+        ),
     ),
     BinaryUfuncInfo(
         "special.chebyshev_polynomial_t",
@@ -410,6 +438,10 @@ op_db: list[OpInfo] = [
             DecorateInfo(unittest.skip("Skipped!"), "TestNNCOpInfo"),
             # Greatest absolute difference: nan
             DecorateInfo(unittest.expectedFailure, "TestCommon", "test_compare_cpu"),
+            # The following dtypes worked in forward but are not listed by the OpInfo: {torch.float16, torch.bfloat16}.
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
+            ),
         ),
         supports_one_python_scalar=True,
         supports_autograd=False,
@@ -423,6 +455,17 @@ op_db: list[OpInfo] = [
             DecorateInfo(unittest.skip("Skipped!"), "TestNNCOpInfo"),
             # Greatest absolute difference: nan
             DecorateInfo(unittest.expectedFailure, "TestCommon", "test_compare_cpu"),
+            # AssertionError: Scalars are not close!
+            DecorateInfo(
+                unittest.expectedFailure,
+                "TestCommon",
+                "test_non_standard_bool_values",
+                device_type="mps",
+            ),
+            # The following dtypes worked in forward but are not listed by the OpInfo: {torch.float16, torch.bfloat16}.
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
+            ),
         ),
         supports_one_python_scalar=True,
         supports_autograd=False,
@@ -436,6 +479,10 @@ op_db: list[OpInfo] = [
             DecorateInfo(unittest.skip("Skipped!"), "TestNNCOpInfo"),
             # Greatest absolute difference: nan
             DecorateInfo(unittest.expectedFailure, "TestCommon", "test_compare_cpu"),
+            # The following dtypes worked in forward but are not listed by the OpInfo: {torch.float16, torch.bfloat16}.
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
+            ),
         ),
         supports_one_python_scalar=True,
         supports_autograd=False,
@@ -449,6 +496,17 @@ op_db: list[OpInfo] = [
             DecorateInfo(unittest.skip("Skipped!"), "TestNNCOpInfo"),
             # Greatest absolute difference: nan
             DecorateInfo(unittest.expectedFailure, "TestCommon", "test_compare_cpu"),
+            # The following dtypes worked in forward but are not listed by the OpInfo: {torch.float16, torch.bfloat16}.
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
+            ),
+            # AssertionError: Scalars are not close!
+            DecorateInfo(
+                unittest.expectedFailure,
+                "TestCommon",
+                "test_non_standard_bool_values",
+                device_type="mps",
+            ),
         ),
         supports_one_python_scalar=True,
         supports_autograd=False,
@@ -466,6 +524,10 @@ op_db: list[OpInfo] = [
             DecorateInfo(
                 unittest.skip, "TestCommon", "test_compare_cpu", device_type="xpu"
             ),
+            # The following dtypes worked in forward but are not listed by the OpInfo: {torch.float16, torch.bfloat16}.
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
+            ),
         ),
         supports_one_python_scalar=True,
         supports_autograd=False,
@@ -479,6 +541,10 @@ op_db: list[OpInfo] = [
             DecorateInfo(unittest.skip("Skipped!"), "TestNNCOpInfo"),
             # Greatest absolute difference: inf
             DecorateInfo(unittest.expectedFailure, "TestCommon", "test_compare_cpu"),
+            # The following dtypes worked in forward but are not listed by the OpInfo: {torch.float16, torch.bfloat16}.
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
+            ),
         ),
         supports_one_python_scalar=True,
         supports_autograd=False,
@@ -602,6 +668,12 @@ op_db: list[OpInfo] = [
         dtypes=all_types_and(torch.bool),
         ref=scipy.special.i0 if TEST_SCIPY else None,
         supports_autograd=False,
+        skips=(
+            # The following dtypes worked in forward but are not listed by the OpInfo: {torch.float16, torch.bfloat16}.
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
+            ),
+        ),
     ),
     UnaryUfuncInfo(
         "special.modified_bessel_i1",
@@ -636,6 +708,12 @@ op_db: list[OpInfo] = [
         dtypes=all_types_and(torch.bool),
         ref=scipy.special.k0 if TEST_SCIPY else None,
         supports_autograd=False,
+        skips=(
+            # The following dtypes worked in forward but are not listed by the OpInfo: {torch.float16, torch.bfloat16}.
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
+            ),
+        ),
     ),
     UnaryUfuncInfo(
         "special.modified_bessel_k1",
@@ -650,6 +728,12 @@ op_db: list[OpInfo] = [
         dtypes=all_types_and(torch.bool),
         ref=scipy.special.k1 if TEST_SCIPY else None,
         supports_autograd=False,
+        skips=(
+            # The following dtypes worked in forward but are not listed by the OpInfo: {torch.float16, torch.bfloat16}.
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
+            ),
+        ),
     ),
     UnaryUfuncInfo(
         "special.scaled_modified_bessel_k0",
@@ -664,6 +748,12 @@ op_db: list[OpInfo] = [
         dtypes=all_types_and(torch.bool),
         ref=scipy.special.k0e if TEST_SCIPY else None,
         supports_autograd=False,
+        skips=(
+            # The following dtypes worked in forward but are not listed by the OpInfo: {torch.float16, torch.bfloat16}.
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
+            ),
+        ),
     ),
     UnaryUfuncInfo(
         "special.scaled_modified_bessel_k1",
@@ -678,6 +768,12 @@ op_db: list[OpInfo] = [
         dtypes=all_types_and(torch.bool),
         ref=scipy.special.k1e if TEST_SCIPY else None,
         supports_autograd=False,
+        skips=(
+            # The following dtypes worked in forward but are not listed by the OpInfo: {torch.float16, torch.bfloat16}.
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
+            ),
+        ),
     ),
     BinaryUfuncInfo(
         "special.shifted_chebyshev_polynomial_t",
@@ -688,6 +784,10 @@ op_db: list[OpInfo] = [
             DecorateInfo(unittest.skip("Skipped!"), "TestNNCOpInfo"),
             # Greatest absolute difference: nan
             DecorateInfo(unittest.expectedFailure, "TestCommon", "test_compare_cpu"),
+            # The following dtypes worked in forward but are not listed by the OpInfo: {torch.float16, torch.bfloat16}.
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
+            ),
         ),
         supports_one_python_scalar=True,
         supports_autograd=False,
@@ -701,6 +801,17 @@ op_db: list[OpInfo] = [
             DecorateInfo(unittest.skip("Skipped!"), "TestNNCOpInfo"),
             # Greatest absolute difference: nan
             DecorateInfo(unittest.expectedFailure, "TestCommon", "test_compare_cpu"),
+            # The following dtypes worked in forward but are not listed by the OpInfo: {torch.float16, torch.bfloat16}.
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
+            ),
+            # AssertionError: Scalars are not close!
+            DecorateInfo(
+                unittest.expectedFailure,
+                "TestCommon",
+                "test_non_standard_bool_values",
+                device_type="mps",
+            ),
         ),
         supports_one_python_scalar=True,
         supports_autograd=False,
@@ -714,6 +825,17 @@ op_db: list[OpInfo] = [
             DecorateInfo(unittest.skip("Skipped!"), "TestNNCOpInfo"),
             # Greatest absolute difference: nan
             DecorateInfo(unittest.expectedFailure, "TestCommon", "test_compare_cpu"),
+            # The following dtypes worked in forward but are not listed by the OpInfo: {torch.float16, torch.bfloat16}.
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
+            ),
+            # AssertionError: Scalars are not close!
+            DecorateInfo(
+                unittest.expectedFailure,
+                "TestCommon",
+                "test_non_standard_bool_values",
+                device_type="mps",
+            ),
         ),
         supports_one_python_scalar=True,
         supports_autograd=False,
@@ -727,6 +849,17 @@ op_db: list[OpInfo] = [
             DecorateInfo(unittest.skip("Skipped!"), "TestNNCOpInfo"),
             # Greatest absolute difference: nan
             DecorateInfo(unittest.expectedFailure, "TestCommon", "test_compare_cpu"),
+            # The following dtypes worked in forward but are not listed by the OpInfo: {torch.float16, torch.bfloat16}.
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
+            ),
+            # AssertionError: Scalars are not close!
+            DecorateInfo(
+                unittest.expectedFailure,
+                "TestCommon",
+                "test_non_standard_bool_values",
+                device_type="mps",
+            ),
         ),
         supports_one_python_scalar=True,
         supports_autograd=False,
@@ -752,6 +885,10 @@ op_db: list[OpInfo] = [
                 "TestUnaryUfuncs",
                 "test_reference_numerics_normal",
                 dtypes=(torch.bool,),
+            ),
+            # The following dtypes worked in forward but are not listed by the OpInfo: {torch.float16, torch.bfloat16}.
+            DecorateInfo(
+                unittest.expectedFailure, "TestCommon", "test_dtypes", device_type="mps"
             ),
         ),
     ),
