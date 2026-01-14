@@ -12086,6 +12086,8 @@ op_db: list[OpInfo] = [
                        DecorateInfo(unittest.skip("Skipped!"), 'TestUnaryUfuncs', 'test_reference_numerics_small',
                                     device_type='cuda', dtypes=[torch.cdouble],
                                     active_if=IS_WINDOWS),
+                       # Exception: Tensor-likes are not equal!
+                       DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_non_standard_bool_values', device_type='mps'),
                    ),
                    # acosh is not defined at x < 1 (real)
                    reference_numerics_filter=NumericsFilter(
@@ -12419,6 +12421,10 @@ op_db: list[OpInfo] = [
                     supports_fwgrad_bwgrad=True,
                     supports_two_python_scalars=True,
                     error_inputs_sparse_func=error_inputs_sparse_mul,
+                    skips=(
+                        # TypeError: Cannot convert a MPS Tensor to float64 dtype as the MPS framework doesn't support float64
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_errors_sparse', device_type='mps'),
+                    ),
                     sample_inputs_sparse_coo_func=partial(sample_inputs_sparse_mul, layout=torch.sparse_coo),
                     sample_inputs_sparse_csr_func=partial(sample_inputs_sparse_mul, layout=torch.sparse_csr),
                     sample_inputs_sparse_csc_func=partial(sample_inputs_sparse_mul, layout=torch.sparse_csc),
@@ -12819,6 +12825,8 @@ op_db: list[OpInfo] = [
                                     active_if=IS_WINDOWS),
                        DecorateInfo(unittest.skip("Skipped! sparse backward not supported"),
                                     'TestSparseUnaryUfuncs', 'test_sparse_fn_grad'),
+                       # Exception: Tensor-likes are not equal!
+                       DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_non_standard_bool_values', device_type='mps'),
                    )),
     UnaryUfuncInfo('atan',
                    aliases=('arctan', ),
@@ -12857,6 +12865,8 @@ op_db: list[OpInfo] = [
                     skips=(
                         # Incorrectly attempts to use a scalar for the second argument
                         DecorateInfo(unittest.expectedFailure, 'TestJit', 'test_jit_alias_remapping'),
+                        # AssertionError: Scalars are not close!
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_non_standard_bool_values', device_type='mps'),
                     )),
     UnaryUfuncInfo('atanh',
                    aliases=('arctanh', ),
@@ -12995,6 +13005,10 @@ op_db: list[OpInfo] = [
                    dtypes=integral_types_and(torch.bool),
                    dtypesIfHpu=custom_types(torch.bool),
                    operator_variant=operator.invert,
+                   skips=(
+                       # AssertionError: Tensor-likes are not equal!
+                       DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_non_standard_bool_values', device_type='mps'),
+                   ),
                    supports_autograd=False),
     BinaryUfuncInfo('bitwise_left_shift',
                     op=torch.bitwise_left_shift,
@@ -13556,6 +13570,8 @@ op_db: list[OpInfo] = [
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
            skips=(
+               # AssertionError: Tensor-likes are not equal!
+               DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_non_standard_bool_values', device_type='mps'),
            ),
            gradcheck_nondet_tol=GRADCHECK_NONDET_TOL),
     OpInfo('cummin',
@@ -13564,6 +13580,8 @@ op_db: list[OpInfo] = [
            supports_forward_ad=True,
            supports_fwgrad_bwgrad=True,
            skips=(
+               # AssertionError: Tensor-likes are not equal!
+               DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_non_standard_bool_values', device_type='mps'),
            ),
            gradcheck_nondet_tol=GRADCHECK_NONDET_TOL),
     UnaryUfuncInfo('deg2rad',
@@ -13698,6 +13716,8 @@ op_db: list[OpInfo] = [
            supports_autograd=False,
            supports_tracing=False,
            skips=(
+               # AssertionError: Booleans mismatch: True is not False
+               DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_non_standard_bool_values', device_type='mps'),
            )),
     UnaryUfuncInfo('exp',
                    ref=np_unary_ufunc_integer_promotion_wrapper(np.exp),
@@ -13802,6 +13822,8 @@ op_db: list[OpInfo] = [
                     supports_autograd=False,
                     sample_inputs_func=sample_inputs_comparison_ops,
                     skips=(
+                        # AssertionError: Scalars are not equal!
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_non_standard_bool_values', device_type='mps'),
                     )),
     BinaryUfuncInfo('fmax',
                     op=torch.fmax,
@@ -15135,6 +15157,8 @@ op_db: list[OpInfo] = [
                         # RuntimeError: "bitwise_and_cuda" not implemented for 'Half'
                         DecorateInfo(unittest.expectedFailure, 'TestBinaryUfuncs',
                                      'test_type_promotion', device_type='cuda'),
+                        # AssertionError: Tensor-likes are not equal!
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_non_standard_bool_values', device_type='mps'),
                     )),
     BinaryUfuncInfo('bitwise_or',
                     ref=np.bitwise_or,
@@ -15165,6 +15189,8 @@ op_db: list[OpInfo] = [
                                      'TestBinaryUfuncs',
                                      'test_type_promotion',
                                      device_type='cuda'),
+                        # AssertionError: Tensor-likes are not equal!
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_non_standard_bool_values', device_type='mps'),
                     )),
     BinaryUfuncInfo('heaviside',
                     ref=lambda a, b: (
@@ -18630,6 +18656,8 @@ op_db: list[OpInfo] = [
                     supports_forward_ad=True,
                     skips=(
                         DecorateInfo(unittest.expectedFailure, 'TestNormalizeOperators', 'test_normalize_operator_exhaustive'),
+                        # Exception: Tensor-likes are not equal!
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_non_standard_bool_values', device_type='mps'),
                     )),
     BinaryUfuncInfo('__ror__',
                     op=torch.Tensor.__ror__,
@@ -18648,6 +18676,8 @@ op_db: list[OpInfo] = [
                     supports_forward_ad=True,
                     skips=(
                         DecorateInfo(unittest.expectedFailure, 'TestNormalizeOperators', 'test_normalize_operator_exhaustive'),
+                        # Exception: Tensor-likes are not equal!
+                        DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_non_standard_bool_values', device_type='mps'),
                     )),
     OpInfo('__rmatmul__',
            op=torch.Tensor.__rmatmul__,
@@ -19843,6 +19873,8 @@ op_db: list[OpInfo] = [
             # RuntimeError: attribute lookup is not defined on builtin
             DecorateInfo(unittest.expectedFailure, 'TestJit', 'test_variant_consistency_jit'),
             DecorateInfo(unittest.skip("Skipped!"), 'TestNNCOpInfo', 'test_nnc_correctness'),
+            # AssertionError: Scalars are not close!
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_non_standard_bool_values', device_type='mps'),
         )),
     UnaryUfuncInfo(
         'bool',
@@ -19869,6 +19901,8 @@ op_db: list[OpInfo] = [
             # RuntimeError: attribute lookup is not defined on builtin
             DecorateInfo(unittest.expectedFailure, 'TestJit', 'test_variant_consistency_jit'),
             DecorateInfo(unittest.skip('Overflow when downcasting signed type is undefined'), 'TestCommon', 'test_compare_cpu'),
+            # AssertionError: Scalars are not equal!
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_non_standard_bool_values', device_type='mps'),
         )),
     UnaryUfuncInfo(
         'char',
@@ -19883,6 +19917,8 @@ op_db: list[OpInfo] = [
             # RuntimeError: attribute lookup is not defined on builtin
             DecorateInfo(unittest.expectedFailure, 'TestJit', 'test_variant_consistency_jit'),
             DecorateInfo(unittest.skip('Overflow when downcasting signed type is undefined'), 'TestCommon', 'test_compare_cpu'),
+            # AssertionError: Scalars are not equal!
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_non_standard_bool_values', device_type='mps'),
         )),
     UnaryUfuncInfo(
         'double',
@@ -19997,6 +20033,8 @@ op_db: list[OpInfo] = [
             # RuntimeError: attribute lookup is not defined on builtin
             DecorateInfo(unittest.expectedFailure, 'TestJit', 'test_variant_consistency_jit'),
             DecorateInfo(unittest.skip("Skipped!"), 'TestNNCOpInfo', 'test_nnc_correctness'),
+            # AssertionError: Scalars are not equal!
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_non_standard_bool_values', device_type='mps'),
         )),
     UnaryUfuncInfo(
         'chalf',
@@ -20024,6 +20062,8 @@ op_db: list[OpInfo] = [
             # RuntimeError: "sum_cpu" not implemented for 'ComplexHalf'
             # RuntimeError: "neg_conj_cuda" not implemented for 'ComplexHalf'
             DecorateInfo(unittest.expectedFailure, 'TestMathBits', 'test_neg_conj_view'),
+            # AssertionError: Scalars are not equal!
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_non_standard_bool_values', device_type='mps'),
         )
     ),
     OpInfo('empty_like',
@@ -20530,6 +20570,8 @@ op_db: list[OpInfo] = [
            error_inputs_func=error_inputs_multinomial,
            skips=(
                DecorateInfo(unittest.expectedFailure, "TestNormalizeOperators", "test_normalize_operator_exhaustive"),
+               # TypeError: Cannot convert a MPS Tensor to float64 dtype as the MPS framework doesn't support float64
+               DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_errors', device_type='mps'),
                # Strides are not the same!
                # This may not be reproducible in CI
                DecorateInfo(unittest.skip("Skipped!"), 'TestCommon', 'test_out'),
@@ -23028,6 +23070,8 @@ op_db: list[OpInfo] = [
                 device_type='cuda',
                 active_if=not TEST_WITH_ROCM
             ),
+            # Exception: Tensor-likes are not equal!
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_non_standard_bool_values', device_type='mps'),
         ),
     ),
     OpInfo(
@@ -25050,6 +25094,17 @@ python_ref_db = [
     ElementwiseBinaryPythonRefInfo(
         "_refs.bitwise_and",
         torch_opinfo_name="bitwise_and",
+        skips=(
+            # AssertionError: Tensor-likes are not equal!
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref', device_type='mps',
+                dtypes=(torch.uint8, torch.int8, torch.int16, torch.bool)
+            ),
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref_torch_fallback', device_type='mps',
+                dtypes=(torch.uint8, torch.int8, torch.int16)
+            ),
+        ),
     ),
     ElementwiseBinaryPythonRefInfo(
         "_refs.bitwise_left_shift",
@@ -25057,6 +25112,19 @@ python_ref_db = [
         skips=(
             # https://github.com/pytorch/pytorch/issues/70904
             DecorateInfo(unittest.skip("Some inputs produce undefined outputs"), 'TestCommon', 'test_compare_cpu'),
+            # RuntimeError: value cannot be converted to type * without overflow
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref', device_type='mps',
+                dtypes=(torch.uint8, torch.int8)
+            ),
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref_meta', device_type='mps',
+                dtypes=(torch.uint8, torch.int8)
+            ),
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref_torch_fallback', device_type='mps',
+                dtypes=(torch.uint8, torch.int8)
+            ),
         ),
     ),
     ElementwiseBinaryPythonRefInfo(
@@ -25070,10 +25138,32 @@ python_ref_db = [
     ElementwiseBinaryPythonRefInfo(
         "_refs.bitwise_or",
         torch_opinfo_name="bitwise_or",
+        skips=(
+            # AssertionError: Tensor-likes are not equal!
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref', device_type='mps',
+                dtypes=(torch.uint8, torch.int8, torch.int16, torch.bool)
+            ),
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref_torch_fallback', device_type='mps',
+                dtypes=(torch.uint8, torch.int8, torch.int16)
+            ),
+        ),
     ),
     ElementwiseBinaryPythonRefInfo(
         "_refs.bitwise_xor",
         torch_opinfo_name="bitwise_xor",
+        skips=(
+            # AssertionError: Tensor-likes are not equal!
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref', device_type='mps',
+                dtypes=(torch.uint8, torch.int8, torch.int16, torch.bool)
+            ),
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref_torch_fallback', device_type='mps',
+                dtypes=(torch.uint8, torch.int8, torch.int16)
+            ),
+        ),
     ),
     ElementwiseBinaryPythonRefInfo(
         "_refs.copysign",
@@ -25158,6 +25248,10 @@ python_ref_db = [
     ElementwiseBinaryPythonRefInfo(
         "_refs.eq",
         torch_opinfo_name="eq",
+        skips=(
+            # NotImplementedError: "_local_scalar_dense_mps" not implemented for 'ComplexHalf'
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', device_type='mps', dtypes=(torch.complex32,)),
+        ),
     ),
     ElementwiseBinaryPythonRefInfo(
         "_refs.float_power",
