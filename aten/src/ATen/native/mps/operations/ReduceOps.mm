@@ -322,7 +322,6 @@ static void impl_func_norm_mps(const Tensor& input_tensor,
   auto input_t = (input_tensor.sizes().size() == 0) ? input_tensor.view({1}) : input_tensor;
   auto in_dtype = opt_dtype.value_or(input_tensor.scalar_type());
   auto mps_input_dtype = getMPSDataType(in_dtype);
-  TORCH_CHECK(!input_tensor.is_complex(), "norm ops are not supported for complex yet");
 
   IntArrayRef input_shape = cdist ? input_broadcasted_shape.value() : input_t.sizes();
 
@@ -388,8 +387,9 @@ static void impl_func_norm_mps(const Tensor& input_tensor,
       MPSGraphTensor* outputTensor;
 
       if (pIsZero) {
-        MPSGraphTensor* zeros = [mpsGraph constantWithScalar:0.0 dataType:mps_input_dtype];
-        MPSGraphTensor* ones = [mpsGraph constantWithScalar:1.0 dataType:mps_input_dtype];
+        auto mps_output_dtype = getMPSDataType(toRealValueType(in_dtype));
+        MPSGraphTensor* zeros = [mpsGraph constantWithScalar:0.0 dataType:mps_output_dtype];
+        MPSGraphTensor* ones = [mpsGraph constantWithScalar:1.0 dataType:mps_output_dtype];
         MPSGraphTensor* nonZeros = [mpsGraph selectWithPredicateTensor:inputTensor
                                                    truePredicateTensor:ones
                                                   falsePredicateTensor:zeros
@@ -397,18 +397,25 @@ static void impl_func_norm_mps(const Tensor& input_tensor,
         outputTensor = [mpsGraph reductionSumWithTensor:nonZeros axes:wrappedAxes name:nil];
       } else if (pIsPosInf) {
         MPSGraphTensor* absoluteTensor = [mpsGraph absoluteWithTensor:inputTensor name:nil];
-        outputTensor = [mpsGraph reductionMaximumWithTensor:absoluteTensor axes:wrappedAxes name:nil];
+        MPSGraphTensor* realAbsoluteTensor =
+            input_tensor.is_complex() ? [mpsGraph realPartOfTensor:absoluteTensor name:nil] : absoluteTensor;
+        outputTensor = [mpsGraph reductionMaximumWithTensor:realAbsoluteTensor axes:wrappedAxes name:nil];
       } else if (pIsNegInf) {
         MPSGraphTensor* absoluteTensor = [mpsGraph absoluteWithTensor:inputTensor name:nil];
-        outputTensor = [mpsGraph reductionMinimumWithTensor:absoluteTensor axes:wrappedAxes name:nil];
+        MPSGraphTensor* realAbsoluteTensor =
+            input_tensor.is_complex() ? [mpsGraph realPartOfTensor:absoluteTensor name:nil] : absoluteTensor;
+        outputTensor = [mpsGraph reductionMinimumWithTensor:realAbsoluteTensor axes:wrappedAxes name:nil];
       } else {
         MPSGraphTensor* absoluteTensor = [mpsGraph absoluteWithTensor:inputTensor name:nil];
+        MPSGraphTensor* realAbsoluteTensor =
+            input_tensor.is_complex() ? [mpsGraph realPartOfTensor:absoluteTensor name:nil] : absoluteTensor;
 
-        MPSGraphTensor* powerValTensor = [mpsGraph constantWithScalar:p dataType:mps_input_dtype];
+        MPSGraphTensor* powerValTensor = [mpsGraph constantWithScalar:p dataType:realAbsoluteTensor.dataType];
 
-        MPSGraphTensor* reciprocalPowerValTensor = [mpsGraph constantWithScalar:reciprocal_p dataType:mps_input_dtype];
+        MPSGraphTensor* reciprocalPowerValTensor = [mpsGraph constantWithScalar:reciprocal_p
+                                                                       dataType:realAbsoluteTensor.dataType];
 
-        MPSGraphTensor* powerTensor = [mpsGraph powerWithPrimaryTensor:absoluteTensor
+        MPSGraphTensor* powerTensor = [mpsGraph powerWithPrimaryTensor:realAbsoluteTensor
                                                        secondaryTensor:powerValTensor
                                                                   name:nil];
 

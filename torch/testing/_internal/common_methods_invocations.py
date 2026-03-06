@@ -15425,11 +15425,6 @@ op_db: list[OpInfo] = [
            dtypes=floating_and_complex_types_and(torch.half, torch.bfloat16),
            sample_inputs_func=sample_inputs_normalize,
            supports_forward_ad=True,
-           skips=(
-               # Exception: norm ops are not supported for complex yet
-               DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
-               DecorateInfo(unittest.expectedFailure, 'TestCommon', device_type='mps', dtypes=(torch.complex64,)),
-           ),
            supports_fwgrad_bwgrad=True),
     OpInfo('aminmax',
            ref=lambda x, dim=None, keepdim=False: (np.amin(x, axis=dim, keepdims=keepdim), np.amax(x, axis=dim, keepdims=keepdim)),
@@ -17664,11 +17659,6 @@ op_db: list[OpInfo] = [
         supports_out=False,
         supports_forward_ad=True,
         supports_fwgrad_bwgrad=True,
-        skips=(
-            # RuntimeError: norm ops are not supported for complex yet
-            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
-            DecorateInfo(unittest.expectedFailure, 'TestCommon', device_type='mps', dtypes=(torch.complex64,)),
-        ),
     ),
     OpInfo(
         "nn.functional.triplet_margin_with_distance_loss",
@@ -17691,9 +17681,6 @@ op_db: list[OpInfo] = [
                 "TestNormalizeOperators",
                 "test_normalize_operator_exhaustive",
             ),
-            # RuntimeError: norm ops are not supported for complex yet
-            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
-            DecorateInfo(unittest.expectedFailure, 'TestCommon', device_type='mps', dtypes=(torch.complex64,)),
         ),
     ),
     BinaryUfuncInfo('nextafter',
@@ -18132,18 +18119,6 @@ op_db: list[OpInfo] = [
            # Could not allocate memory to change Tensor SizesAndStrides!
            check_batched_forward_grad=False,
            supports_fwgrad_bwgrad=True,
-           skips=(
-               # norm ops are not supported for complex yet
-               DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
-               DecorateInfo(
-                   unittest.expectedFailure, 'TestCommon', 'test_noncontiguous_samples',
-                   device_type='mps', dtypes=(torch.complex64,)
-               ),
-               DecorateInfo(
-                   unittest.expectedFailure, 'TestCommon', 'test_variant_consistency_eager',
-                   device_type='mps', dtypes=(torch.complex64,)
-               ),
-           ),
            sample_inputs_func=sample_inputs_dist),
     OpInfo('outer',
            op=torch.outer,
@@ -20911,7 +20886,7 @@ op_db: list[OpInfo] = [
                             device_type='cpu', dtypes=(torch.float16,)),
                DecorateInfo(toleranceOverride({torch.float16: tol(atol=3e-4, rtol=3e-6)}),
                             "TestConsistency", "test_output_match", device_type="mps"),
-               # RuntimeError: norm ops are not supported for complex yet
+               # RuntimeError: Failed to create function state object for: renorm_float2
                DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
                DecorateInfo(unittest.expectedFailure, 'TestCommon', device_type='mps', dtypes=(torch.complex64,)),
            )),
@@ -21863,6 +21838,12 @@ op_db: list[OpInfo] = [
         check_batched_forward_grad=False,
         supports_forward_ad=True,
         supports_fwgrad_bwgrad=True,
+        decorators=[
+            DecorateInfo(
+                toleranceOverride({torch.complex32: tol(atol=1e-2, rtol=1e-2)}),
+                'TestCommon', 'test_complex_half_reference_testing', device_type='mps'
+            ),
+        ],
         skips=(
             # AssertionError: RuntimeError not raised : Expected RuntimeError when doing an unsafe cast
             # from a result of dtype torch.float32 into an out= with dtype torch.long
@@ -21870,9 +21851,6 @@ op_db: list[OpInfo] = [
                 unittest.expectedFailure, 'TestCommon', 'test_out',
                 device_type='mps', dtypes=(torch.float32,)
             ),
-            # Error: norm ops are not supported for complex yet
-            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
-            DecorateInfo(unittest.expectedFailure, 'TestCommon', device_type='mps', dtypes=(torch.cfloat, torch.chalf)),
             # Dispatches in Python to vector_norm. Not sure how to make this test happy
             # Happens to pass on complex64. Also a mystery
             DecorateInfo(unittest.expectedFailure, 'TestJit', 'test_variant_consistency_jit',
@@ -21918,9 +21896,6 @@ op_db: list[OpInfo] = [
                    'test_output_match',
 
                ),
-               # RuntimeError: norm ops are not supported for complex yet
-               DecorateInfo(unittest.expectedFailure, 'TestCommon', device_type='mps', dtypes=(torch.complex64,)),
-               DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
                # AssertionError: RuntimeError not raised : Expected RuntimeError when doing an
                # unsafe cast from a result of dtype torch.float32 into an out= with dtype torch.long
                DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out', device_type='mps', dtypes=(torch.float32,)),
@@ -21946,8 +21921,6 @@ op_db: list[OpInfo] = [
         # fast gradcheck produces NaNs
         gradcheck_fast_mode=False,
         skips=(
-            # RuntimeError: norm ops are not supported for complex yet
-            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
             # AssertionError: RuntimeError not raised : Expected RuntimeError
             # when doing an unsafe cast from a result of dtype torch.float32
             # into an out= with dtype torch.long
@@ -21956,8 +21929,6 @@ op_db: list[OpInfo] = [
                 toleranceOverride({torch.float16: tol(atol=2e-3, rtol=1e-3)}),
                 'TestInductorOpInfo', 'test_comprehensive', device_type='cuda',
             ),
-            # Error: norm ops are not supported for complex yet
-            DecorateInfo(unittest.expectedFailure, 'TestCommon', device_type='mps', dtypes=(torch.cfloat, torch.chalf)),
             # Dispatches in Python to vector_norm. Not sure how to make this test happy
             # Happens to pass on complex64. Also a mystery
             DecorateInfo(unittest.expectedFailure, 'TestJit', 'test_variant_consistency_jit',
@@ -23058,10 +23029,7 @@ op_db: list[OpInfo] = [
                 "test_variant_consistency_jit",
                 dtypes=(torch.float32, torch.complex64),
             ),
-            # Cannot convert a MPS Tensor to float64 dtype as the MPS framework doesn't support float64
-            # RuntimeError: norm ops are not supported for complex yet
-            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
-            DecorateInfo(unittest.expectedFailure, 'TestCommon', device_type='mps', dtypes=(torch.complex64,)),
+            # TypeError: Cannot convert a MPS Tensor to float64 dtype as the MPS framework doesn't support float64
             DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_numpy_ref', device_type='mps', dtypes=(torch.int64,)),
         ),
     ),
@@ -24742,12 +24710,6 @@ python_ref_db = [
         "_refs.nn.functional.pairwise_distance",
         torch_opinfo_name="nn.functional.pairwise_distance",
         supports_out=True,
-        skips=(
-            # Cannot convert a MPS Tensor to float64 dtype as the MPS framework doesn't support float64
-            # RuntimeError: norm ops are not supported for complex yet
-            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
-            DecorateInfo(unittest.expectedFailure, 'TestCommon', device_type='mps', dtypes=(torch.complex64,)),
-        ),
     ),
     PythonRefInfo(
         "_refs.nn.functional.pdist",
@@ -25767,9 +25729,6 @@ python_ref_db = [
             # Greatest relative difference: 8.519846983548175e-06 at index (4,) (up to 1.3e-06 allowed)
             DecorateInfo(unittest.skip("Skipped!"), 'TestCommon', 'test_python_ref',
                          dtypes=(torch.uint8,), device_type="cpu"),
-            # RuntimeError: norm ops are not supported for complex yet
-            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
-            DecorateInfo(unittest.expectedFailure, 'TestCommon', device_type='mps', dtypes=(torch.complex64,)),
         )
     ),
     ElementwiseBinaryPythonRefInfo(
@@ -26241,9 +26200,12 @@ python_ref_db = [
         "_refs.renorm",
         torch_opinfo_name="renorm",
         skips=(
-            # RuntimeError: norm ops are not supported for complex yet
-            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
-            DecorateInfo(unittest.expectedFailure, 'TestCommon', device_type='mps', dtypes=(torch.complex64,)),
+            # RuntimeError: Failed to create function state object for: renorm_float2
+            DecorateInfo(
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref_torch_fallback',
+                device_type='mps', dtypes=(torch.complex64,)
+            ),
+            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_python_ref', device_type='mps', dtypes=(torch.complex64,)),
             # Cannot convert a MPS Tensor to float64 dtype as the MPS framework doesn't support float64
             DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_python_ref', device_type='mps', dtypes=(torch.float16,)),
             DecorateInfo(
@@ -26767,11 +26729,10 @@ python_ref_db = [
                 unittest.expectedFailure, 'TestCommon', 'test_python_ref',
                 device_type='mps', dtypes=(torch.float16,)
             ),
-            # RuntimeError: norm ops are not supported for complex yet
-            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
+            # TypeError: Trying to convert ComplexDouble to the MPS backend but it does not have support for that dtype.
             DecorateInfo(
-                unittest.expectedFailure, 'TestCommon', device_type='mps',
-                dtypes=(torch.complex32, torch.complex64)
+                unittest.expectedFailure, 'TestCommon', 'test_python_ref', device_type='mps',
+                dtypes=(torch.complex32,)
             ),
         ),
     ),
