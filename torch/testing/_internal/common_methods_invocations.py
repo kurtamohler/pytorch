@@ -21838,19 +21838,7 @@ op_db: list[OpInfo] = [
         check_batched_forward_grad=False,
         supports_forward_ad=True,
         supports_fwgrad_bwgrad=True,
-        decorators=[
-            DecorateInfo(
-                toleranceOverride({torch.complex32: tol(atol=1e-2, rtol=1e-2)}),
-                'TestCommon', 'test_complex_half_reference_testing', device_type='mps'
-            ),
-        ],
         skips=(
-            # AssertionError: RuntimeError not raised : Expected RuntimeError when doing an unsafe cast
-            # from a result of dtype torch.float32 into an out= with dtype torch.long
-            DecorateInfo(
-                unittest.expectedFailure, 'TestCommon', 'test_out',
-                device_type='mps', dtypes=(torch.float32,)
-            ),
             # Dispatches in Python to vector_norm. Not sure how to make this test happy
             # Happens to pass on complex64. Also a mystery
             DecorateInfo(unittest.expectedFailure, 'TestJit', 'test_variant_consistency_jit',
@@ -21896,9 +21884,6 @@ op_db: list[OpInfo] = [
                    'test_output_match',
 
                ),
-               # AssertionError: RuntimeError not raised : Expected RuntimeError when doing an
-               # unsafe cast from a result of dtype torch.float32 into an out= with dtype torch.long
-               DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out', device_type='mps', dtypes=(torch.float32,)),
                # Issue with conj and torch dispatch, see https://github.com/pytorch/pytorch/issues/82479
                DecorateInfo(
                    unittest.skip("Skipped!"),
@@ -21921,10 +21906,6 @@ op_db: list[OpInfo] = [
         # fast gradcheck produces NaNs
         gradcheck_fast_mode=False,
         skips=(
-            # AssertionError: RuntimeError not raised : Expected RuntimeError
-            # when doing an unsafe cast from a result of dtype torch.float32
-            # into an out= with dtype torch.long
-            DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out', device_type='mps', dtypes=(torch.float32,)),
             DecorateInfo(
                 toleranceOverride({torch.float16: tol(atol=2e-3, rtol=1e-3)}),
                 'TestInductorOpInfo', 'test_comprehensive', device_type='cuda',
@@ -26723,18 +26704,6 @@ python_ref_db = [
         # Uses vector_norm inside and vector_norm is affected by
         # https://github.com/pytorch/pytorch/issues/77216
         validate_view_consistency=False,
-        skips=(
-            # TypeError: Cannot convert a MPS Tensor to float64 dtype as the MPS framework doesn't support float64
-            DecorateInfo(
-                unittest.expectedFailure, 'TestCommon', 'test_python_ref',
-                device_type='mps', dtypes=(torch.float16,)
-            ),
-            # TypeError: Trying to convert ComplexDouble to the MPS backend but it does not have support for that dtype.
-            DecorateInfo(
-                unittest.expectedFailure, 'TestCommon', 'test_python_ref', device_type='mps',
-                dtypes=(torch.complex32,)
-            ),
-        ),
     ),
     #
     # Tensor Creation Reference OpInfos

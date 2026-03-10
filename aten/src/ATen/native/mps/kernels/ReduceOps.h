@@ -1,0 +1,15 @@
+#pragma once
+#include <c10/metal/common.h>
+
+template <unsigned N = c10::metal::max_ndim>
+struct NormParams {
+  float p;
+  uint32_t reduction_size;
+  uint32_t ndim;
+
+  ::c10::metal::array<uint32_t, N> input_sizes;
+  ::c10::metal::array<uint32_t, N> input_strides;
+
+  ::c10::metal::array<uint32_t, N> output_sizes;
+  ::c10::metal::array<uint32_t, N> output_strides;
+};
