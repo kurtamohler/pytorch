@@ -22,6 +22,7 @@
 #include <ATen/ops/argmax_native.h>
 #include <ATen/ops/argmin_native.h>
 #include <ATen/ops/count_nonzero_native.h>
+#include <ATen/ops/empty_strided.h>
 #include <ATen/ops/linalg_vector_norm.h>
 #include <ATen/ops/max_native.h>
 #include <ATen/ops/mean_native.h>
@@ -1518,6 +1519,58 @@ std::tuple<Tensor, Tensor> var_mean_mps(const Tensor& self,
   return {var, mean};
 }
 
+static void cumulative_op_kernel(const Tensor& result, const Tensor& self, int64_t dim, std::string_view op_name) {
+  CumulativeOpParams params;
+  params.dim = dim;
+  params.ndim = self.dim();
+
+  TORCH_INTERNAL_ASSERT(self.dim() == result.dim());
+
+  for (const auto dim_idx : c10::irange(self.dim())) {
+    auto self_size = self.size(dim_idx);
+    auto result_size = result.size(dim_idx);
+    TORCH_INTERNAL_ASSERT(self_size == result_size);
+    auto self_stride = self.stride(dim_idx);
+    auto result_stride = result.stride(dim_idx);
+    params.sizes[dim_idx] = safe_downcast<uint32_t, int64_t>(self_size);
+    params.input_strides[dim_idx] = safe_downcast<uint32_t, int64_t>(self_stride);
+    params.output_strides[dim_idx] = safe_downcast<uint32_t, int64_t>(result_stride);
+  }
+
+  MPSStream* stream = getCurrentMPSStream();
+
+  dispatch_sync_with_rethrow(stream->queue(), ^() {
+    @autoreleasepool {
+      id<MTLComputeCommandEncoder> compute_encoder = stream->commandEncoder();
+      auto pipeline_state = lib.getPipelineStateForFunc(
+          fmt::format("cumulative_{}_{}", op_name, scalarToMetalTypeString(self)));
+      getMPSProfiler().beginProfileKernel(pipeline_state, "norm", {self});
+      [compute_encoder setComputePipelineState:pipeline_state];
+
+      mtl_setArgs(compute_encoder, self, result, params);
+
+      uint32_t reduction_size = self.size(dim);
+      auto threads_per_group = std::min(MAX_THREADGROUP_SIZE, reduction_size);
+      uint32_t num_threads = (self.numel() / reduction_size) * threads_per_group;
+
+      [compute_encoder dispatchThreads:MTLSizeMake(num_threads, 1, 1)
+                 threadsPerThreadgroup:MTLSizeMake(threads_per_group, 1, 1)];
+
+      getMPSProfiler().endProfileKernel(pipeline_state);
+    }
+  });
+}
+
+static void cumsum_mps_kernel(const Tensor& result, const Tensor& self, int64_t dim) {
+  return cumulative_op_kernel(result, self, dim, "sum");
+}
+
+static void cumprod_mps_kernel(const Tensor& result, const Tensor& self, int64_t dim) {
+  return cumulative_op_kernel(result, self, dim, "prod");
+}
+
 REGISTER_DISPATCH(norm_stub, &mps::norm_kernel_mps)
+REGISTER_DISPATCH(cumsum_stub, &cumsum_mps_kernel)
+REGISTER_DISPATCH(cumprod_stub, &cumprod_mps_kernel)
 
 } // namespace at::native

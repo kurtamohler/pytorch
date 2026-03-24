@@ -15,3 +15,13 @@ struct NormParams {
   ::c10::metal::array<uint32_t, N> output_sizes;
   ::c10::metal::array<uint32_t, N> output_strides;
 };
+
+template <unsigned N = c10::metal::max_ndim>
+struct CumulativeOpParams {
+  uint32_t dim;
+  uint32_t ndim;
+  ::c10::metal::array<uint32_t, N> sizes;
+  ::c10::metal::array<uint32_t, N> input_strides;
+  ::c10::metal::array<uint32_t, N> output_strides;
+};
+

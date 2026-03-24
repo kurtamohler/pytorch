@@ -175,3 +175,115 @@ REGISTER_NORM(half, half);
 REGISTER_NORM(bfloat, bfloat);
 REGISTER_NORM(float2, float);
 REGISTER_NORM(half2, half);
+
+struct CumulativeOp {
+  template <typename T>
+  static T prod(T a, T b) {
+    return c10::metal::mul(a, b);
+  }
+
+  template <typename T>
+  static T sum(T a, T b) {
+    return a + b;
+  }
+};
+
+// Each threadgroup performs a reduction of one batch, using a parallel prefix sum
+// algorithm described here: 
+// https://en.wikipedia.org/wiki/Prefix_sum#Algorithm_1:_Shorter_span,_more_parallel
+template <typename T, T (*OP)(T, T)>
+kernel void cumulative_kernel(
+    constant T* input [[buffer(0)]],
+    device T* output [[buffer(1)]],
+    constant CumulativeOpParams<>& params [[buffer(2)]],
+    uint tid [[thread_position_in_threadgroup]],
+    uint tptg [[threads_per_threadgroup]],
+    uint tgid [[threadgroup_position_in_grid]]) {
+  uint32_t input_batch_offset = 0;
+  uint32_t input_batch_stride = 0;
+  uint32_t output_batch_offset = 0;
+  uint32_t output_batch_stride = 0;
+  int32_t reduction_size = 0;
+  uint32_t batch_index = tgid;
+
+  for (int32_t dim = params.ndim - 1; dim >= 0; dim--) {
+    auto size = params.sizes[dim];
+    auto input_stride = params.input_strides[dim];
+    auto output_stride = params.output_strides[dim];
+
+    if (dim == params.dim) {
+      reduction_size = size;
+      input_batch_stride = input_stride;
+      output_batch_stride = output_stride;
+    } else {
+      auto dim_index = batch_index % size;
+      batch_index /= size;
+      input_batch_offset += input_stride * dim_index;
+      output_batch_offset += output_stride * dim_index;
+    }
+  }
+
+  input += input_batch_offset;
+  output += output_batch_offset;
+
+  // First, write the input to the output
+  for (uint32_t idx = tid; idx < reduction_size; idx += tptg) {
+    output[idx * output_batch_stride] = input[idx * input_batch_stride];
+  }
+
+  // Now perform a series of updates i = 0, ..., n where all pairs of elements
+  // in the output buffer that are 2^i indices apart are added together and the
+  // rightmost element is written over.
+  for (int32_t reduce_offset = 1; reduce_offset < reduction_size; reduce_offset <<= 1) {
+
+    // Perform the update in multiple chunks, if there are more elements than
+    // threads. The chunks are updated from right to left. If done left to
+    // right, we would clobber data, since the updated elements on the right
+    // depend on the values of elements to the left before the update.
+    for (int32_t chunk_end_idx = (reduction_size - 1); chunk_end_idx >= reduce_offset; chunk_end_idx -= static_cast<int32_t>(tptg)) {
+      int32_t chunk_start_idx = chunk_end_idx - static_cast<int32_t>(tptg) + 1;
+      int32_t dst_idx = chunk_start_idx + tid;
+      int32_t src_idx = dst_idx - reduce_offset;
+
+      auto src_offset = src_idx * output_batch_stride;
+      auto dst_offset = dst_idx * output_batch_stride;
+      T res;
+
+      threadgroup_barrier(mem_flags::mem_threadgroup);
+
+      if (src_idx >= 0) {
+        res = OP(output[dst_offset], output[src_offset]);
+      }
+      threadgroup_barrier(mem_flags::mem_threadgroup);
+
+      if (src_idx >= 0) {
+        output[dst_offset] = res;
+      }
+    }
+  }
+}
+
+#define REGISTER_CUMULATIVE_KERNEL(OP, T) \
+  template [[host_name("cumulative_" #OP "_" #T)]] \
+  kernel void cumulative_kernel<T, CumulativeOp::OP<T>> ( \
+    constant T* input [[buffer(0)]], \
+    device T* output [[buffer(1)]], \
+    constant CumulativeOpParams<>& params [[buffer(2)]], \
+    uint tid [[thread_position_in_threadgroup]], \
+    uint tptg [[threads_per_threadgroup]], \
+    uint tgid [[threadgroup_position_in_grid]]);
+
+#define REGISTER_CUMULATIVE_KERNELS(T) \
+  REGISTER_CUMULATIVE_KERNEL(sum, T); \
+  REGISTER_CUMULATIVE_KERNEL(prod, T);
+
+REGISTER_CUMULATIVE_KERNELS(float);
+REGISTER_CUMULATIVE_KERNELS(half);
+REGISTER_CUMULATIVE_KERNELS(bfloat);
+REGISTER_CUMULATIVE_KERNELS(int);
+REGISTER_CUMULATIVE_KERNELS(long);
+REGISTER_CUMULATIVE_KERNELS(short);
+REGISTER_CUMULATIVE_KERNELS(char);
+REGISTER_CUMULATIVE_KERNELS(uchar);
+REGISTER_CUMULATIVE_KERNELS(float2);
+REGISTER_CUMULATIVE_KERNELS(half2);
