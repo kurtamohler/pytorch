@@ -123,6 +123,30 @@ struct LogCumSumExpOp {
   }
 };
 
+template <typename T, typename acc_t = accum_t<T>>
+struct CumProdOp {
+  static constexpr constant acc_t init = static_cast<acc_t>(0);
+
+  acc_t operator()(acc_t a, acc_t b) {
+    //return static_cast<acc_t>(c10::metal::mul(static_cast<T>(a),  static_cast<T>(b)));
+    return static_cast<acc_t>(c10::metal::mul(a, b));
+  }
+
+  acc_t simd_scan(acc_t x) {
+    for (int i = 1; i <= 16; i *= 2) {
+      acc_t other = simd_shuffle_and_fill_up(x, init, i);
+      x = this->operator()(x, other);
+    }
+    return x;
+    //return simd_prefix_inclusive_product(x);
+  }
+
+  acc_t simd_exclusive_scan(acc_t x) {
+    x = simd_scan(x);
+    return simd_shuffle_and_fill_up(x, init, 1);
+  }
+};
+
 // Pair structure to hold value and index for cummin/cummax operations
 template <typename T, typename acc_t = accum_t<T>>
 struct ValueIndexPair {
@@ -765,6 +789,9 @@ kernel void scan_with_indices_outer_dim(
 REGISTER_SCAN_OP(logcumsumexp, LogCumSumExpOp, float, 4);
 REGISTER_SCAN_OP(logcumsumexp, LogCumSumExpOp, half, 4);
 REGISTER_SCAN_OP(logcumsumexp, LogCumSumExpOp, bfloat, 4);
+
+REGISTER_SCAN_OP(cumprod, CumProdOp, float2, 2);
+REGISTER_SCAN_OP(cumprod, CumProdOp, half2, 4);
 
 // Scan with indices operations for cummin/cummax
 REGISTER_SCAN_WITH_INDICES_OP(cummin, CumMinOp, float, 4);

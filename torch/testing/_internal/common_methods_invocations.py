@@ -13657,20 +13657,20 @@ op_db: list[OpInfo] = [
                # cumprod does not handle correctly out= dtypes
                DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_out'),
                # The following dtypes did not work in forward but are listed by the OpInfo: {torch.complex64}
-               DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
+               #DecorateInfo(unittest.expectedFailure, 'TestCommon', 'test_dtypes', device_type='mps'),
                # RuntimeError: cumulative ops are not yet supported for complex
-               DecorateInfo(
-                   unittest.expectedFailure, 'TestCommon', 'test_noncontiguous_samples',
-                   device_type='mps', dtypes=(torch.complex64,)
-               ),
-               DecorateInfo(
-                   unittest.expectedFailure, 'TestCommon', 'test_out_requires_grad_error',
-                   device_type='mps', dtypes=(torch.complex64,)
-               ),
-               DecorateInfo(
-                   unittest.expectedFailure, 'TestCommon', 'test_variant_consistency_eager',
-                   device_type='mps', dtypes=(torch.complex64,)
-               ),
+               #DecorateInfo(
+               #    unittest.expectedFailure, 'TestCommon', 'test_noncontiguous_samples',
+               #    device_type='mps', dtypes=(torch.complex64,)
+               #),
+               #DecorateInfo(
+               #    unittest.expectedFailure, 'TestCommon', 'test_out_requires_grad_error',
+               #    device_type='mps', dtypes=(torch.complex64,)
+               #),
+               #DecorateInfo(
+               #    unittest.expectedFailure, 'TestCommon', 'test_variant_consistency_eager',
+               #    device_type='mps', dtypes=(torch.complex64,)
+               #),
            ),
            # gradgradcheck fails in fast_mode=True: #56275
            sample_inputs_func=sample_inputs_cumprod,

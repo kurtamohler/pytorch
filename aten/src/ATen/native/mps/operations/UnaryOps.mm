@@ -3,6 +3,7 @@
 #include <ATen/native/UnaryOps.h>
 #include <ATen/native/mps/Copy.h>
 #include <ATen/native/mps/OperationUtils.h>
+#include <ATen/native/mps/operations/ScanKernel.h>
 
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
@@ -333,8 +334,20 @@ static void cumulative_op_impl(const Tensor& self,
               "(original dim is ",
               dim,
               ")");
-  TORCH_CHECK(!self.is_complex(), "cumulative ops are not yet supported for complex");
   auto input = dtype.has_value() ? self.to(dtype.value()) : self;
+  if (input.is_complex()) {
+    if (cumulativeOpType == MPSCumulativeOpType::CUMPROD) {
+      std::cout << "========================================" << std::endl;
+      std::cout << op_name << " is cumprod" << std::endl;
+      std::cout << "========================================" << std::endl;
+      return mps::scan_simple_mps_impl(input, result, wrapped_dim, "cumprod");
+    } else {
+      std::cout << "========================================" << std::endl;
+      std::cout << op_name << " is not cumprod" << std::endl;
+      std::cout << "========================================" << std::endl;
+      TORCH_CHECK(false, "cumulative ops are not yet supported for complex, except for cumprod");
+    }
+  }
 
   // issue #103810551: cumsum / cumprod are broken for int8, int16 and as chances for overflow are pretty high, cast to
   // int32 fixed in macOS 13.3
