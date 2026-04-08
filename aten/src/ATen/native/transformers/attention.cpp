@@ -792,8 +792,7 @@ Tensor scaled_dot_product_attention(
       return std::get<0>(out_lse_softmax);
     }
     case SDPBackend::math: {
-      const bool any_inputs_require_grad = query_.requires_grad() || key.requires_grad() || value.requires_grad();
-      if (query_device_type == c10::kMPS && !(at::GradMode::is_enabled() && any_inputs_require_grad)) {
+      if (query_device_type == c10::kMPS) {
         return std::get<0>(at::_scaled_dot_product_attention_math_for_mps(
             query_,
             key,
@@ -974,6 +973,7 @@ _scaled_dot_product_flash_attention_cpu_backward(
   if (!grad_out.defined()) {
     return std::make_tuple(Tensor{}, Tensor{}, Tensor{});
   }
+  std::cout << "cpu logsumexp=" << logsumexp << std::endl;
   auto grad_out_t = grad_out.transpose(1, 2);
   auto q_t = query.transpose(1, 2);
   auto k_t = key.transpose(1, 2);

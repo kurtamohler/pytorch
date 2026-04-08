@@ -9818,6 +9818,10 @@ class TestSDPA(TestCaseMPS):
                 y.sum().backward()
                 y_ref.sum().backward()
 
+                print('-----------------------')
+                print(q.grad)
+                print(q_cpu.grad)
+                print('-----------------------')
                 self._compare_tensors(q.grad.cpu(), q_cpu.grad)
 
     def test_sdpa_no_mask_no_causal_fp32(self):

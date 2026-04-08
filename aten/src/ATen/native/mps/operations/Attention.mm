@@ -14,6 +14,8 @@
 #include <ATen/NativeFunctions.h>
 #else
 #include <ATen/ops/_scaled_dot_product_attention_math_for_mps_native.h>
+#include <ATen/ops/_scaled_dot_product_attention_math_for_mps_backward_native.h>
+#include <ATen/ops/_softmax_backward_data.h>
 #include <ATen/ops/empty_native.h>
 #endif
 
@@ -34,6 +36,8 @@ static inline std::tuple<Tensor, bool> ensure_4d(const Tensor& x) {
   } else if (x.dim() > 4) {
     auto batchSize = c10::multiply_integers(x.sizes().begin(), x.sizes().end() - 3);
     return {x.view({batchSize, x.size(-3), x.size(-2), x.size(-1)}), true};
+  } else if (x.dim() == 2) {
+    return {x.view({1, 1, x.size(-2), x.size(-1)}), true};
   } else {
     return {x, false};
   }
@@ -61,7 +65,7 @@ static std::tuple<Tensor, Tensor> sdpa_general_mps(const Tensor& query,
     MPSGraphTensor* attnTensor = nil;
   };
   const auto macOS15_0_plus = is_macos_13_or_newer(MacOSVersion::MACOS_VER_15_0_PLUS);
-  int64_t batchSize = query.size(0);
+  int64_t batchSize = std::max(query.size(0), key.size(0));
   int64_t num_head = query.size(1);
   int64_t qSize = query.size(2);
   int64_t valueHeadSize = value.size(3);
@@ -151,8 +155,12 @@ static std::tuple<Tensor, Tensor> sdpa_general_mps(const Tensor& query,
 
   auto final_out = out;
   auto final_attn = attn;
+  //std::cout << "forward attn=" << attn << std::endl;
   if (unsqueezed) {
-    if (orig_query.dim() == 3) {
+    if (orig_query.dim() == 2) {
+      final_out = out.squeeze(0).squeeze(0);
+      final_attn = attn.squeeze(0).squeeze(0);
+    } else if (orig_query.dim() == 3) {
       final_out = out.squeeze(0);
       final_attn = attn.squeeze(0);
     } else {
@@ -447,6 +455,9 @@ std::tuple<Tensor, Tensor> _scaled_dot_product_attention_math_mps(const Tensor& 
                                                                   const std::optional<Tensor>& dropout_mask,
                                                                   std::optional<double> scale,
                                                                   bool enable_gqa) {
+  std::cout << "=========================================" << std::endl;
+  std::cout << "in _scaled_dot_product_attention_math_mps" << std::endl;
+  std::cout << "=========================================" << std::endl;
   TORCH_CHECK_NOT_IMPLEMENTED(c10::isFloatingType(query.scalar_type()),
                               "scaled_dot_product_attention for MPS does not support dtype ",
                               query.scalar_type());
@@ -475,22 +486,28 @@ std::tuple<Tensor, Tensor> _scaled_dot_product_attention_math_mps(const Tensor& 
     }
   }
 
+  std::cout << "here0" << std::endl;
   auto query_tuple = ensure_4d(query);
   Tensor q_ = std::get<0>(query_tuple);
   bool unsqueezed = std::get<1>(query_tuple);
 
+  std::cout << "here1" << std::endl;
   auto key_tuple = ensure_4d(key);
   Tensor k_ = std::get<0>(key_tuple);
 
+  std::cout << "here2" << std::endl;
   auto value_tuple = ensure_4d(value);
   Tensor v_ = std::get<0>(value_tuple);
 
+  std::cout << "here3" << std::endl;
   std::optional<Tensor> mask_;
   if (attn_mask) {
     auto maskExpandedDims = query.sizes().vec();
     maskExpandedDims[maskExpandedDims.size() - 1] = k_.size(2);
     mask_ = attn_mask->expand(maskExpandedDims);
+    std::cout << "here4" << std::endl;
     std::tie(*mask_, std::ignore) = ensure_4d(*mask_);
+    std::cout << "here5" << std::endl;
   }
 
   int query_head_dim = q_.size(3);
@@ -537,6 +554,35 @@ std::tuple<Tensor, Tensor> _scaled_dot_product_attention_math_mps(const Tensor& 
     return sdpa_vector_fast_mps(
         q_contig, k_contig, v_contig, mask_, dropout_p, is_causal, dropout_mask, scale, query, unsqueezed);
   }
+}
+
+std::tuple<Tensor, Tensor, Tensor, Tensor> _scaled_dot_product_attention_math_mps_backward(
+    const Tensor& grad_output,
+    const Tensor& query,
+    const Tensor& key,
+    const Tensor& value,
+    const Tensor& output,
+    const Tensor& attn,
+    bool is_causal,
+    std::optional<double> opt_scale,
+    bool enable_gqa
+) {
+  std::cout << "==================================================" << std::endl;
+  std::cout << "in _scaled_dot_product_attention_math_mps_backward" << std::endl;
+  std::cout << "==================================================" << std::endl;
+  auto scale = opt_scale.value_or(1 / std::sqrt(static_cast<double>(query.size(-1))));
+
+  auto grad_attn = value.conj().matmul(grad_output.mT()).mT();
+  //std::cout << "mps attn=" << attn << std::endl;
+  auto grad_softmax = at::_softmax_backward_data(grad_attn, attn, -1, attn.scalar_type());
+  auto grad_Q_KT = grad_softmax.mul(scale);
+
+  auto grad_query = key.mT().conj().matmul(grad_Q_KT.mT()).mT();
+  auto grad_key = grad_Q_KT.mT().matmul(query.conj());
+  auto grad_value = grad_output.mT().matmul(attn.conj()).mT();
+  auto grad_attn_mask = grad_Q_KT;
+
+  return {std::move(grad_query), std::move(grad_key), std::move(grad_value), std::move(grad_attn_mask)};
 }
 } // namespace native
 } // namespace at

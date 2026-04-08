@@ -15226,9 +15226,14 @@
   variants: function
   tags: nondeterministic_seeded
 
-- func: _scaled_dot_product_attention_math_for_mps(Tensor query, Tensor key, Tensor value, Tensor? attn_mask=None, float dropout_p=0.0, bool is_causal=False, Tensor? dropout_mask=None, *, float? scale=None, bool enable_gqa=False) -> (Tensor, Tensor)
+- func: _scaled_dot_product_attention_math_for_mps(Tensor query, Tensor key, Tensor value, Tensor? attn_mask=None, float dropout_p=0.0, bool is_causal=False, Tensor? dropout_mask=None, *, float? scale=None, bool enable_gqa=False) -> (Tensor output, Tensor attn)
   dispatch:
     MPS: _scaled_dot_product_attention_math_mps
+  tags: nondeterministic_seeded
+
+- func: _scaled_dot_product_attention_math_for_mps_backward(Tensor grad, Tensor query, Tensor key, Tensor value, Tensor output, Tensor attn, bool is_causal=False, *, float? scale=None, bool enable_gqa=False) -> (Tensor grad_query, Tensor grad_key, Tensor grad_value, Tensor grad_attn_mask)
+  dispatch:
+    MPS: _scaled_dot_product_attention_math_mps_backward
   tags: nondeterministic_seeded
 
 - func: _scaled_dot_product_flash_attention(Tensor query, Tensor key, Tensor value, float dropout_p=0.0, bool is_causal=False, bool return_debug_mask=False, *, float? scale=None) -> (Tensor output, Tensor logsumexp, Tensor cum_seq_q, Tensor cum_seq_k, SymInt max_q, SymInt max_k, Tensor rng_state, Tensor unused, Tensor debug_attn_mask)
