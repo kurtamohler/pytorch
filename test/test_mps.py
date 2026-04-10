@@ -9981,6 +9981,35 @@ class TestSDPA(TestCaseMPS):
             self._compare_tensors(y.cpu(), y_ref)
 
     @parametrize("dtype", [torch.float16, torch.float32])
+    @parametrize("q_batch", [(), (1,), (1, 1), (1, 1, 1), (2,), (3, 2), (4, 3, 2)])
+    @parametrize("k_batch", [(), (1,), (1, 1), (1, 1, 1), (2,), (3, 2), (4, 3, 2)])
+    @parametrize("v_batch", [(), (1,), (1, 1), (1, 1, 1), (2,), (3, 2), (4, 3, 2)])
+    def test_sdpa_broadcasting(self, dtype, q_batch, k_batch, v_batch):
+        S = 18
+        E = 9
+        Ev = 11
+        L = 5
+
+        q = torch.randn(*q_batch, L, E, dtype=dtype)
+        k = torch.randn(*k_batch, S, E, dtype=dtype)
+        v = torch.randn(*v_batch, S, Ev, dtype=dtype)
+
+        with torch.nn.attention.sdpa_kernel([torch.nn.attention.SDPBackend.MATH]):
+            y_ref = F.scaled_dot_product_attention(
+                q.to("cpu"),
+                k.to("cpu"),
+                v.to("cpu"),
+            )
+
+            y = F.scaled_dot_product_attention(
+                q.to("mps"),
+                k.to("mps"),
+                v.to("mps"),
+            )
+
+            self._compare_tensors(y.cpu(), y_ref)
+
+    @parametrize("dtype", [torch.float16, torch.float32])
     def test_sdpa_no_mask_5d(
         self,
         dtype: torch.dtype,
