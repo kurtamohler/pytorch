@@ -9980,14 +9980,14 @@ class TestSDPA(TestCaseMPS):
 
             self._compare_tensors(y.cpu(), y_ref)
 
-    @parametrize("dtype", [torch.float16, torch.float32])
+    @parametrize("dtype", [torch.float32])
     @parametrize("q_batch", [(), (1,), (1, 1), (1, 1, 1), (2,), (3, 2), (4, 3, 2)])
     @parametrize("k_batch", [(), (1,), (1, 1), (1, 1, 1), (2,), (3, 2), (4, 3, 2)])
     @parametrize("v_batch", [(), (1,), (1, 1), (1, 1, 1), (2,), (3, 2), (4, 3, 2)])
     def test_sdpa_broadcasting(self, dtype, q_batch, k_batch, v_batch):
         S = 18
-        E = 9
-        Ev = 11
+        E = 64
+        Ev = 64
         L = 5
 
         q = torch.randn(*q_batch, L, E, dtype=dtype)

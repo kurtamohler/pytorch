@@ -9,6 +9,8 @@
 #include <ATen/native/mps/OperationUtils.h>
 #include <ATen/native/transformers/attention.h>
 #include <ATen/native/transformers/sdp_utils_cpp.h>
+#include <ATen/native/mps/kernels/Attention.h>
+
 
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
@@ -327,8 +329,8 @@ static std::tuple<Tensor, Tensor> sdpa_full_attention_mps(const Tensor& q_,
                                                           bool is_causal,
                                                           const std::optional<Tensor>& dropout_mask,
                                                           std::optional<double> scale,
-                                                          const Tensor& orig_query,
-                                                          bool unsqueezed) {
+                                                          IntArrayRef out_sizes,
+                                                          IntArrayRef attn_sizes) {
   using namespace mps;
 
   int64_t batchSize = q_.size(0);
@@ -336,6 +338,7 @@ static std::tuple<Tensor, Tensor> sdpa_full_attention_mps(const Tensor& q_,
   int64_t qL = q_.size(2);
   int64_t kL = k_.size(2);
   int64_t headSize = q_.size(3);
+  int64_t Ev = v_.size(3);
 
   auto q_batch_stride = q_.stride(0);
   auto q_head_stride = q_.stride(1);
@@ -363,8 +366,8 @@ static std::tuple<Tensor, Tensor> sdpa_full_attention_mps(const Tensor& q_,
     mask_kv_seq_stride = mask_tensor.stride(3);
   }
 
-  float scale_factor = sdp::calculate_scale(orig_query, scale).expect_float();
-  auto out = at::empty_like(q_);
+  float scale_factor = sdp::calculate_scale(q_, scale).expect_float();
+  auto out = at::empty({batchSize, num_heads, qL, Ev}, q_.options());
 
   constexpr uint wm = 4;
   constexpr uint wn = 1;
@@ -415,8 +418,227 @@ static std::tuple<Tensor, Tensor> sdpa_full_attention_mps(const Tensor& q_,
     }
   });
 
-  auto final_out = unsqueezed ? out.view_as(orig_query) : out;
+  auto final_out = out.view(out_sizes);
   return {std::move(final_out), std::move(final_out)};
+}
+
+// This implemenation is based on: https://github.com/pytorch/executorch/blob/6b63d3d1744ce3767e5f931f4dca1dcabc901f10/backends/apple/metal/runtime/ops/op_sdpa.mm#L17
+//
+// Perf:
+//    dtype (batch, heads, E, Ev, L, S) baseline-time metal-time speedup
+//    torch.float32 (1, 8, 64, 64, 128, 128) 1.59e-04 4.91e-04 0.32
+//    torch.float32 (4, 12, 64, 64, 256, 256) 1.54e-03 4.17e-03 0.37
+//    torch.float32 (8, 16, 64, 64, 512, 512) 1.52e-02 3.53e-02 0.43
+//    torch.float32 (16, 16, 64, 64, 1024, 1024) 1.17e-01 2.48e-01 0.47
+static std::tuple<Tensor, Tensor> sdpa_vector_new(const Tensor& q,
+                                                  const Tensor& k,
+                                                  const Tensor& v,
+                                                  const std::optional<Tensor>& attn_mask,
+                                                  double dropout_p,
+                                                  bool is_causal,
+                                                  const std::optional<Tensor>& dropout_mask,
+                                                  std::optional<double> scale,
+                                                  IntArrayRef out_sizes,
+                                                  IntArrayRef attn_sizes) {
+  using namespace mps;
+  auto batch_size = q.size(0);
+  auto num_heads = q.size(1);
+  auto L = q.size(2);
+  auto E = q.size(3);
+  auto S = v.size(2);
+  auto Ev = v.size(3);
+
+
+  TORCH_CHECK(
+    E == 64 || E == 96 || E == 128,
+    "dim -1 of 'query' must be either 64, 96, or 128"
+  );
+  TORCH_CHECK(
+    E == Ev,
+    "dim -1 of 'value' must match that of 'query'"
+  );
+
+  auto out = at::empty({batch_size, num_heads, L, Ev}, q.options());
+  auto attn = at::empty({batch_size, num_heads, L, S}, q.options());
+  auto scale_factor = sdp::calculate_scale(q, scale).expect_float();
+
+  SDPANewParams params;
+
+  params.gqa_factor = static_cast<uint>(num_heads / k.size(1));
+  params.N = static_cast<uint>(k.size(2));
+
+  int64_t qSize = q.size(2);
+
+
+  uint q_batch_stride = static_cast<uint>(q.stride(0));
+  uint q_head_stride = static_cast<uint>( q.stride(1));
+  uint q_seq_stride = static_cast<uint>(  q.stride(2));
+  uint q_dim_stride = static_cast<uint>(  q.stride(3));
+
+  uint k_batch_stride = static_cast<uint>(k.stride(0));
+  uint k_head_stride = static_cast<uint>( k.size(1) == 1 ? k.stride(0) : k.stride(1));
+  uint k_seq_stride = static_cast<uint>(  k.stride(2));
+  uint k_dim_stride = static_cast<uint>(  k.stride(3));
+
+  uint v_batch_stride = static_cast<uint>(v.stride(0));
+  uint v_head_stride = static_cast<uint>( v.size(1) == 1 ? v.stride(0) : v.stride(1));
+  uint v_seq_stride = static_cast<uint>(  v.stride(2));
+  uint v_dim_stride = static_cast<uint>(  v.stride(3));
+
+  params.qkv_head_strides[0] = q_head_stride;
+  params.qkv_head_strides[1] = k_head_stride;
+  params.qkv_head_strides[2] = v_head_stride;
+
+  params.qkv_seq_strides[0] = q_seq_stride;
+  params.qkv_seq_strides[1] = k_seq_stride;
+  params.qkv_seq_strides[2] = v_seq_stride;
+
+  params.scale = scale_factor;
+
+  if (attn_mask.has_value()) {
+    auto m = attn_mask.value();
+    int nd = m.dim();
+    params.mask_strides[0] = (nd >= 3 && m.size(nd - 3) > 1) ? static_cast<uint>(m.stride(nd - 3)) : 0;
+    params.mask_strides[1] = (nd >= 1 && m.size(nd - 1) > 1) ? static_cast<uint>(m.stride(nd - 1)) : 0;
+    params.mask_strides[2] = (nd >= 2 && m.size(nd - 2) > 1) ? static_cast<uint>(m.stride(nd - 2)) : 0;
+  } else {
+
+    params.mask_strides[0] = 0;
+    params.mask_strides[1] = 0;
+    params.mask_strides[2] = 0;
+  }
+
+  params.has_mask = attn_mask.has_value();
+
+  params.qkv_batch_strides[0] = q_batch_stride;
+  params.qkv_batch_strides[1] = k_batch_stride;
+  params.qkv_batch_strides[2] = v_batch_stride;
+
+  params.num_q_heads = num_heads;
+  params.is_causal = is_causal;
+
+
+  MPSStream* mpsStream = getCurrentMPSStream();
+
+  dispatch_sync_with_rethrow(mpsStream->queue(), ^() {
+    @autoreleasepool {
+      id<MTLComputeCommandEncoder> compute_encoder = mpsStream->commandEncoder();
+      auto pso = lib.getPipelineStateForFunc(fmt::format("sdpa_vector_new_{}_{}_{}", scalarToMetalTypeString(q), E, Ev));
+
+      getMPSProfiler().beginProfileKernel(pso, "scaled_dot_product_attention", {q, k, v});
+      [compute_encoder setComputePipelineState:pso];
+      mtl_setArgs(compute_encoder,
+        q,
+        k,
+        v,
+        out,
+        attn_mask.value_or(q),
+        params);
+
+      MTLSize group_dims = MTLSizeMake(batch_size * num_heads, qSize, 1);
+      MTLSize threadsPerGroup = MTLSizeMake(1024, 1, 1);
+      [compute_encoder dispatchThreadgroups:group_dims threadsPerThreadgroup:threadsPerGroup];
+      getMPSProfiler().endProfileKernel(pso);
+    }
+  });
+
+  auto final_out = out.view(out_sizes);
+  auto final_attn = attn.view(attn_sizes);
+  return {std::move(final_out), std::move(final_attn)};
+}
+
+
+  // Tiled perf:
+  //  dtype (batch, heads, E, Ev, L, S) baseline-time metal-time speedup
+  //  torch.float32 (1, 8, 64, 64, 128, 128) 1.74e-04 2.39e-04 0.73
+  //  torch.float32 (4, 12, 64, 64, 256, 256) 1.53e-03 2.09e-03 0.73
+  //  torch.float32 (8, 16, 64, 64, 512, 512) 1.53e-02 2.13e-02 0.72
+  //  torch.float32 (16, 16, 64, 64, 1024, 1024) 1.17e-01 1.72e-01 0.68
+  //
+  // Non-tiled perf:
+  //  dtype (batch, heads, E, Ev, L, S) baseline-time metal-time speedup
+  //  torch.float32 (1, 8, 64, 64, 128, 128) 1.65e-04 4.45e-04 0.37
+  //  torch.float32 (4, 12, 64, 64, 256, 256) 1.55e-03 3.54e-03 0.44
+  //  torch.float32 (8, 16, 64, 64, 512, 512) 1.53e-02 3.76e-02 0.41
+  //  torch.float32 (16, 16, 64, 64, 1024, 1024) 1.17e-01 3.28e-01 0.36
+  //
+  // baseline is `_scaled_dot_product_attention_math`, given MPS inputs
+  //
+  // For comparison, the MPSGraph impl gives:
+  //  dtype (batch, heads, E, Ev, L, S) baseline-time metal-time speedup
+  //  torch.float32 (1, 8, 64, 64, 128, 128) 1.74e-04 1.55e-04 1.12
+  //  torch.float32 (4, 12, 64, 64, 256, 256) 1.55e-03 1.37e-03 1.13
+  //  torch.float32 (8, 16, 64, 64, 512, 512) 1.53e-02 1.37e-02 1.12
+  //  torch.float32 (16, 16, 64, 64, 1024, 1024) 1.17e-01 1.07e-01 1.09
+static std::tuple<Tensor, Tensor> sdpa(const Tensor& q,
+                                       const Tensor& k,
+                                       const Tensor& v,
+                                       std::optional<double> scale,
+                                       IntArrayRef out_sizes,
+                                       IntArrayRef attn_sizes) {
+  using namespace mps;
+
+  auto batch_size = q.size(0);
+  auto num_heads = q.size(1);
+  auto L = q.size(2);
+  auto E = q.size(3);
+  auto S = v.size(2);
+  auto Ev = v.size(3);
+
+  auto out = at::empty({batch_size, num_heads, L, Ev}, q.options());
+  auto attn = at::empty({batch_size, num_heads, L, S}, q.options());
+  auto scale_factor = sdp::calculate_scale(q, scale).expect_float();
+
+  SDPAParams params;
+
+  params.L = L;
+  params.E = E;
+  params.S = S;
+  params.Ev = Ev;
+  params.scale = scale_factor;
+  params.batch_size = batch_size;
+  params.num_heads = num_heads;
+
+  for (const auto dim : c10::irange(4)) {
+    params.q_strides[dim] = q.stride(dim);
+    params.k_strides[dim] = k.stride(dim);
+    params.v_strides[dim] = v.stride(dim);
+    params.out_strides[dim] = out.stride(dim);
+    params.attn_strides[dim] = attn.stride(dim);
+  }
+
+  MPSStream* mpsStream = getCurrentMPSStream();
+
+  bool use_tiled = true;
+
+  dispatch_sync_with_rethrow(mpsStream->queue(), ^() {
+    @autoreleasepool {
+      id<MTLComputeCommandEncoder> compute_encoder = mpsStream->commandEncoder();
+      auto pso = lib.getPipelineStateForFunc(fmt::format("sdpa{}_{}", use_tiled ? "_tiled_new" : "", scalarToMetalTypeString(q)));
+
+      getMPSProfiler().beginProfileKernel(pso, "scaled_dot_product_attention", {q, k, v});
+      [compute_encoder setComputePipelineState:pso];
+      mtl_setArgs(compute_encoder, out, attn, q, k, v, params);
+
+      if (use_tiled) {
+        // One threadgroup per (batch, head) pair; TILE_SIZE×TILE_SIZE threads within each group.
+        [compute_encoder dispatchThreadgroups:MTLSizeMake(batch_size * num_heads, 1, 1)
+                      threadsPerThreadgroup:MTLSizeMake(TILE_SIZE, TILE_SIZE, 1)];
+      } else {
+        auto max_threadgroup_size = pso.maxTotalThreadsPerThreadgroup;
+        auto threads_per_group = std::min(max_threadgroup_size, std::max(NSUInteger(L * S), NSUInteger(L * Ev)));
+        NSUInteger num_threads = threads_per_group * batch_size * num_heads;
+        [compute_encoder dispatchThreads:MTLSizeMake(num_threads, 1, 1)
+                  threadsPerThreadgroup:MTLSizeMake(threads_per_group, 1, 1)];
+      }
+
+      getMPSProfiler().endProfileKernel(pso);
+    }
+  });
+
+  auto final_out = out.view(out_sizes);
+  auto final_attn = attn.view(attn_sizes);
+  return {std::move(final_out), std::move(final_attn)};
 }
 
 std::tuple<Tensor, Tensor> _scaled_dot_product_attention_math_mps(const Tensor& query,
@@ -506,6 +728,12 @@ std::tuple<Tensor, Tensor> _scaled_dot_product_attention_math_mps(const Tensor& 
 
   // boolean to decide if we can use kernel paths
   bool supports_fast_sdpa = !is_causal && supports_sdpa_vector;
+
+  if (!is_causal && !attn_mask.has_value()) {
+    return sdpa(q_, k_, v_, scale, out_sizes, attn_sizes);
+    //return sdpa_general_mps(q_, k_, v_, mask_, dropout_p, is_causal, dropout_mask, scale, out_sizes, attn_sizes);
+    //return sdpa_vector_new(q_, k_, v_, mask_, dropout_p, is_causal, dropout_mask, scale, out_sizes, attn_sizes);
+  }
 
   // if none of the fast paths apply, fall back to the generic mps graph solution
   if (!supports_fast_sdpa) {
