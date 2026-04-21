@@ -4,8 +4,10 @@
 #include <iostream>
 #include <optional>
 
+#include <ATen/ExpandUtils.h>
 #include <ATen/core/Tensor.h>
 #include <ATen/native/mps/OperationUtils.h>
+#include <ATen/native/mps/kernels/Attention.h>
 #include <ATen/native/transformers/attention.h>
 #include <ATen/native/transformers/sdp_utils_cpp.h>
 
@@ -27,7 +29,6 @@ static auto& lib = mps::MetalShaderLibrary::getBundledLibrary();
 
 static constexpr int SIMD_SIZE = 32;
 
-// expand potential 3d to 4d tensor
 static inline std::tuple<Tensor, bool> ensure_4d(const Tensor& x) {
   if (x.dim() == 3) {
     return {x.unsqueeze(0), true};
@@ -38,6 +39,7 @@ static inline std::tuple<Tensor, bool> ensure_4d(const Tensor& x) {
     return {x, false};
   }
 }
+
 
 // general version
 static std::tuple<Tensor, Tensor> sdpa_general_mps(const Tensor& query,
@@ -188,6 +190,39 @@ static std::tuple<Tensor, Tensor> sdpa_general_mps(const Tensor& query,
   return {std::move(final_out), std::move(final_attn)};
 }
 
+//static inline std::tuple<Tensor, Tensor, Tensor, std::vector<int64_t>, std::vector<int64_t>> broadcast_sdpa_batch_dims(
+//    const Tensor& query,
+//    const Tensor& key,
+//    const Tensor& value) {
+//  auto L = query.size(-2);
+//  auto S = key.size(-2);
+//  auto Ev = value.size(-1);
+//
+//  std::vector<int64_t> query_batch(query.sizes().begin(), query.sizes().end() - 2);
+//  std::vector<int64_t> key_batch(key.sizes().begin(), key.sizes().end() - 2);
+//  std::vector<int64_t> value_batch(value.sizes().begin(), value.sizes().end() - 2);
+//
+//  auto batch_sizes = at::infer_size(at::infer_size(query_batch, key_batch), value_batch);
+//
+//  std::vector<int64_t> query_sizes(batch_sizes);
+//  std::vector<int64_t> key_sizes(batch_sizes);
+//  std::vector<int64_t> value_sizes(batch_sizes);
+//  std::vector<int64_t> attn_sizes(batch_sizes);
+//  std::vector<int64_t> out_sizes(batch_sizes);
+//
+//  query_sizes.insert(query_sizes.end(), {query.size(-2), query.size(-1)});
+//  key_sizes.insert(key_sizes.end(), {key.size(-2), key.size(-1)});
+//  value_sizes.insert(value_sizes.end(), {value.size(-2), value.size(-1)});
+//  attn_sizes.insert(attn_sizes.end(), {L, S});
+//  out_sizes.insert(out_sizes.end(), {L, Ev});
+//
+//  auto q_ = ensure_4d(query.expand(query_sizes));
+//  auto k_ = ensure_4d(key.expand(key_sizes));
+//  auto v_ = ensure_4d(value.expand(value_sizes));
+//
+//  return {std::move(q_), std::move(k_), std::move(v_), std::move(attn_sizes), std::move(out_sizes)};
+//}
+
 // Vector mode (One–pass variant)
 static std::tuple<Tensor, Tensor> sdpa_vector_fast_mps(const Tensor& q_,
                                                        const Tensor& k_,
@@ -267,7 +302,6 @@ static std::tuple<Tensor, Tensor> sdpa_vector_fast_mps(const Tensor& q_,
     shape.insert(shape.end(), {attn.size(1), attn.size(2), attn.size(3)});
     return attn.view(shape);
   }()) : attn;
-
   return {std::move(final_out), std::move(final_attn)};
 }
 
@@ -668,6 +702,97 @@ static std::tuple<Tensor, Tensor> sdpa_prefill_mps(const Tensor& q_,
   return {std::move(final_out), std::move(final_out)};
 }
 
+static std::tuple<Tensor, Tensor> sdpa_general(const Tensor& q,
+                                               const Tensor& k,
+                                               const Tensor& v,
+                                               const std::optional<Tensor>& attn_mask,
+                                               bool is_causal,
+                                               std::optional<double> scale,
+                                               const Tensor& orig_query,
+                                               bool unsqueezed) {
+  using namespace mps;
+
+  TORCH_CHECK(!(is_causal && attn_mask.has_value()), "_scaled_dot_product_attention: Explicit attn_mask should not be set when is_causal=True");
+
+  auto batch_size = q.size(0);
+  auto num_heads = q.size(1);
+  auto L = q.size(2);
+  auto E = q.size(3);
+  auto S = v.size(2);
+  auto Ev = v.size(3);
+
+  auto out = at::empty({batch_size, num_heads, L, Ev}, q.options());
+  auto attn = at::empty({batch_size, num_heads, L, S}, q.options());
+  auto scale_factor = sdp::calculate_scale(orig_query, scale).expect_float();
+
+  SDPAParams params;
+
+  params.batch_size = batch_size;
+  params.num_heads = num_heads;
+  params.L = L;
+  params.E = E;
+  params.S = S;
+  params.Ev = Ev;
+  params.scale = scale_factor;
+  params.gqa_factor = q.size(1) / k.size(1);
+
+
+  for (const auto dim : c10::irange(4)) {
+    params.q_strides[dim] = q.stride(dim);
+    params.k_strides[dim] = k.stride(dim);
+    params.v_strides[dim] = v.stride(dim);
+    params.mask_strides[dim] = attn_mask.has_value() ? attn_mask->stride(dim) : 0;
+    params.out_strides[dim] = out.stride(dim);
+    params.attn_strides[dim] = attn.stride(dim);
+  }
+
+  MPSStream* mpsStream = getCurrentMPSStream();
+
+  dispatch_sync_with_rethrow(mpsStream->queue(), ^() {
+    @autoreleasepool {
+      id<MTLComputeCommandEncoder> compute_encoder = mpsStream->commandEncoder();
+      auto pso = lib.getPipelineStateForFunc(
+          fmt::format("sdpa_general_{}_{}{}",
+                      scalarToMetalTypeString(q),
+                      // `void` type mask indicates not to apply the mask
+                      attn_mask.has_value() ? scalarToMetalTypeString(attn_mask.value()) : "void",
+                      is_causal ? "_causal" : ""));
+
+      getMPSProfiler().beginProfileKernel(pso, "scaled_dot_product_attention", {q, k, v});
+      [compute_encoder setComputePipelineState:pso];
+      mtl_setArgs(compute_encoder, out, attn, q, k, v, attn_mask, params);
+
+      auto num_L_tiles = (L + TILE_ROWS - 1) / TILE_ROWS;
+      [compute_encoder dispatchThreadgroups:MTLSizeMake(batch_size, num_heads, num_L_tiles)
+                      threadsPerThreadgroup:MTLSizeMake(NUM_THREADS, 1, 1)];
+
+      getMPSProfiler().endProfileKernel(pso);
+    }
+  });
+
+  auto final_out = out;
+  auto final_attn = attn;
+  if (unsqueezed) {
+    if (orig_query.dim() == 3) {
+      final_out = out.squeeze(0);
+      final_attn = attn.squeeze(0);
+    } else {
+      std::vector<int64_t> prefix_shape(orig_query.sizes().begin(), orig_query.sizes().end() - 3);
+
+      auto out_shape = prefix_shape;
+      auto attn_shape = prefix_shape;
+
+      out_shape.insert(out_shape.end(), {out.size(1), out.size(2), out.size(3)});
+      attn_shape.insert(attn_shape.end(), {attn.size(1), attn.size(2), attn.size(3)});
+
+      final_out = out.view(out_shape);
+      final_attn = attn.view(attn_shape);
+    }
+  }
+
+  return {std::move(final_out), std::move(final_attn)};
+}
+
 std::tuple<Tensor, Tensor> _scaled_dot_product_attention_math_mps(const Tensor& query,
                                                                   const Tensor& key_,
                                                                   const Tensor& value_,
@@ -717,6 +842,7 @@ std::tuple<Tensor, Tensor> _scaled_dot_product_attention_math_mps(const Tensor& 
     maskExpandedDims[maskExpandedDims.size() - 1] = k_.size(2);
     mask_ = attn_mask->expand(maskExpandedDims);
     std::tie(*mask_, std::ignore) = ensure_4d(*mask_);
+
   }
 
   int query_head_dim = q_.size(3);
@@ -758,6 +884,9 @@ std::tuple<Tensor, Tensor> _scaled_dot_product_attention_math_mps(const Tensor& 
   bool prefill_q_long_enough = query_seq_len > 8;
   bool supports_prefill = !prefill_attention_disabled && !supports_fast_sdpa && prefill_supported_dtype &&
       prefill_mask_compatible && prefill_head_dim_supported && prefill_q_long_enough && (k_.size(2) > 0);
+
+  //return sdpa_general_mps(q_, k_, v_, mask_, dropout_p, is_causal, dropout_mask, scale, query, unsqueezed);
+  return sdpa_general(q_, k_, v_, mask_, is_causal, scale, query, unsqueezed);
 
   if (!supports_fast_sdpa && !supports_prefill) {
     return sdpa_general_mps(q_, k_, v_, mask_, dropout_p, is_causal, dropout_mask, scale, query, unsqueezed);
