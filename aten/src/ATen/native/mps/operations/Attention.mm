@@ -8,6 +8,7 @@
 #include <ATen/native/mps/OperationUtils.h>
 #include <ATen/native/transformers/attention.h>
 #include <ATen/native/transformers/sdp_utils_cpp.h>
+#include <ATen/native/mps/kernels/Attention.h>
 
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
@@ -446,6 +447,141 @@ static std::tuple<Tensor, Tensor> sdpa_full_attention_mps(const Tensor& q_,
   return {std::move(final_out), std::move(final_out)};
 }
 
+
+// Choose a block size which uses the most memory but still fits within the
+// maximum threadgroup memory space.
+static std::tuple<uint32_t, uint32_t> get_sdpa_flash_block_size(uint32_t d, uint32_t N) {
+  auto max_mem = static_cast<uint32_t>(THREADGROUP_MEMORY_FLOATS);
+
+  auto get_mem_usage = [](uint32_t B_r, uint32_t B_c, uint32_t d) {
+    auto KV_j_size = B_c * d;
+    auto Q_i_size = B_r * d;
+    auto O_i_size = B_r * d;
+    auto S_ij_size = B_r * B_c;
+    auto l_i_size = B_r;
+    auto m_i_size = B_r;
+    auto m_i_prev_size = B_r;
+    return KV_j_size + Q_i_size + O_i_size + S_ij_size + l_i_size + m_i_size + m_i_prev_size;
+  };
+
+  uint32_t B_r_final = 8;
+  uint32_t B_c_final = 8;
+
+  if (d == 32) {
+    B_c_final = 16;
+    B_r_final = 64;
+  } else if (d == 64) {
+    B_c_final = 32;
+    B_r_final = 32;
+  } else if (d == 96) {
+    B_c_final = 24;
+    B_r_final = 24;
+  } else if (d == 128) {
+    B_c_final = 16;
+    B_r_final = 16;
+  } else {
+    uint32_t B_r = B_r_final;
+    uint32_t B_c = B_c_final;
+    while ((get_mem_usage(B_r, B_c, d) < max_mem) && (B_c <= d)) {
+      B_r_final = B_r;
+      B_c_final = B_c;
+      B_c += 8;
+      B_r = std::min(B_c, d);
+    }
+  }
+
+  TORCH_INTERNAL_ASSERT(get_mem_usage(B_r_final, B_c_final, d) < max_mem);
+
+
+  return {B_r_final, B_c_final};
+}
+
+static Tensor sdpa_flash(const Tensor& q,
+                         const Tensor& k,
+                         const Tensor& v,
+                         const std::optional<Tensor>& attn_mask,
+                         bool is_causal,
+                         std::optional<double> scale) {
+  using namespace mps;
+
+  TORCH_INTERNAL_ASSERT(!(is_causal && attn_mask.has_value()));
+
+  auto batch_size = q.size(0);
+  auto num_heads = q.size(1);
+  auto L = q.size(2);
+  auto E = q.size(3);
+  auto S = v.size(2);
+  auto Ev = v.size(3);
+  auto d = std::max(E, Ev);
+  auto N = std::max(L, S);
+
+  TORCH_CHECK(E <= 256, "head dimension E must be 256 or less, but got ", E);
+  TORCH_CHECK(Ev <= 256, "head dimension Ev must be 256 or less, but got ", Ev);
+  TORCH_CHECK((E % 8) == 0, "head dimension E must be divisible by 8, but got ", E);
+  TORCH_CHECK((Ev % 8) == 0, "head dimension Ev must be divisible by 8, but got ", Ev);
+
+  auto out = at::empty({batch_size, num_heads, L, Ev}, q.options());
+  auto logsumexp = at::empty({batch_size, num_heads, N}, q.options().dtype(at::kFloat));
+  auto [B_r, B_c] = get_sdpa_flash_block_size(d, N);
+  auto threads_per_threadgroup = std::min(
+    static_cast<uint32_t>(MAX_THREADS_PER_THREADGROUP),
+    // Maximize the number of threads per threadgroup to the number of output
+    // elements of each block matmul.
+    std::max(B_c * B_r, B_r * static_cast<uint32_t>(d))
+  );
+  auto T_r = (N + B_r - 1) / B_r;
+
+  SDPAParams params;
+
+  params.batch_size = batch_size;
+  params.num_heads = num_heads;
+  params.L = L;
+  params.E = E;
+  params.S = S;
+  params.Ev = Ev;
+  params.d = d;
+  params.N = N;
+  params.B_c = B_c;
+  params.B_r = B_r;
+  params.scale = sdp::calculate_scale(q, scale).expect_float();
+
+  for (const auto dim : c10::irange(4)) {
+    params.q_strides[dim] = q.stride(dim);
+    params.k_strides[dim] = k.stride(dim);
+    params.v_strides[dim] = v.stride(dim);
+    params.out_strides[dim] = out.stride(dim);
+    if (dim < 3) {
+      params.logsumexp_strides[dim] = logsumexp.stride(dim);
+    }
+  }
+
+  MPSStream* mpsStream = getCurrentMPSStream();
+
+  dispatch_sync_with_rethrow(mpsStream->queue(), ^() {
+    @autoreleasepool {
+      id<MTLComputeCommandEncoder> compute_encoder = mpsStream->commandEncoder();
+      auto pso = lib.getPipelineStateForFunc(
+          fmt::format("sdpa_flash_{}_{}{}",
+                      scalarToMetalTypeString(q),
+                      // `void` type mask indicates not to apply the mask
+                      attn_mask.has_value() ? scalarToMetalTypeString(attn_mask.value()) : "void",
+                      is_causal ? "_causal" : ""));
+
+      getMPSProfiler().beginProfileKernel(pso, "scaled_dot_product_attention", {q, k, v});
+      [compute_encoder setComputePipelineState:pso];
+      mtl_setArgs(compute_encoder, out, logsumexp, q, k, v, attn_mask, params);
+
+      // Execute one threadgroup per (batch, head) pair
+      [compute_encoder dispatchThreadgroups:MTLSizeMake(batch_size * num_heads, T_r, 1)
+                      threadsPerThreadgroup:MTLSizeMake(threads_per_threadgroup, 1, 1)];
+
+      getMPSProfiler().endProfileKernel(pso);
+    }
+  });
+
+  return std::move(out);
+}
+
 std::tuple<Tensor, Tensor> _scaled_dot_product_attention_math_mps(const Tensor& query,
                                                                   const Tensor& key_,
                                                                   const Tensor& value_,
@@ -518,6 +654,8 @@ std::tuple<Tensor, Tensor> _scaled_dot_product_attention_math_mps(const Tensor& 
   // boolean to decide if we can use kernel paths
   bool supports_fast_sdpa = !is_causal && supports_sdpa_vector;
 
+  return {sdpa_flash(q_, k_, v_, mask_, is_causal, scale), Tensor()};
+
   // if none of the fast paths apply, fall back to the generic mps graph solution
   if (!supports_fast_sdpa) {
     return sdpa_general_mps(q_, k_, v_, mask_, dropout_p, is_causal, dropout_mask, scale, query, unsqueezed);
@@ -539,5 +677,21 @@ std::tuple<Tensor, Tensor> _scaled_dot_product_attention_math_mps(const Tensor& 
         q_contig, k_contig, v_contig, mask_, dropout_p, is_causal, dropout_mask, scale, query, unsqueezed);
   }
 }
+
+//Tensor _scaled_dot_product_flash_attention_mps(
+//    const Tensor& query,
+//    const Tensor& key,
+//    const Tensor& value,
+//    double dropout_p,
+//    bool is_causal,
+//    const std::optional<Tensor>& attn_mask,
+//    std::optional<double> scale) {
+//  const int64_t max_seqlen_batch_q = query.size(2);
+//  const int64_t max_seqlen_batch_k = key.size(2);
+//  auto out = sdpa_flash(query, key, value, attn_mask, is_causal, scale);
+//
+//  //return std::make_tuple(std::move(attention), std::move(logsumexp), Tensor(), Tensor(), max_seqlen_batch_q, max_seqlen_batch_k, std::move(philox_seed), std::move(philox_offset), std::move(debug_attn_mask));
+//  return std::make_tuple(out, Tensor(), Tensor(), Tensor(), max_seqlen_batch_q, max_seqlen_batch_k, Tensor(), Tensor(), Tensor());
+//}
 } // namespace native
 } // namespace at

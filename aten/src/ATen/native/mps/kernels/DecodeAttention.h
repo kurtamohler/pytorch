@@ -7,6 +7,8 @@
 //   https://github.com/ml-explore/mlx/blob/main/mlx/backend/metal/kernels/scaled_dot_product_attention.metal
 #pragma once
 
+#include <ATen/native/mps/kernels/Attention.h>
+
 template <typename T, int D, int V = D>
 [[kernel]] void sdpa_vector(
     const device T* queries [[buffer(0)]],
@@ -373,6 +375,301 @@ template <typename T, int D>
   }
 }
 
+// Matrix `mat` of size (N x d) is broken up into blocks of size (B x d). This
+// function loads the `i`-th block into threadgroup memory.
+template <typename ptr_t>
+static inline void load_matrix_block(threadgroup float* block, ptr_t mat, uint32_t mat_stride0, uint32_t mat_stride1, uint32_t N, uint32_t B, uint32_t i, uint32_t d, uint lid, uint tptg) {
+  for (uint32_t block_offset = lid; block_offset < B * d; block_offset += tptg) {
+    uint32_t block_row = block_offset / d;
+    uint32_t col = block_offset % d;
+    auto mat_row = i * B + block_row;
+    auto mat_offset = mat_row * mat_stride0 + col * mat_stride1;
+    float val = (mat_row < N) ?  static_cast<float>(mat[mat_offset]) : 0;
+    block[block_offset] = val;
+  }
+}
+
+template <typename T>
+static inline void write_matrix_block(threadgroup float* block, device T* mat, uint32_t mat_stride0, uint32_t mat_stride1, uint32_t N, uint32_t B, uint32_t i, uint32_t d, uint lid, uint tptg) {
+  for (uint32_t block_offset = lid; block_offset < B * d; block_offset += tptg) {
+    uint32_t block_row = block_offset / d;
+    uint32_t col = block_offset % d;
+    auto mat_row = i * B + block_row;
+    auto mat_offset = mat_row * mat_stride0 + col * mat_stride1;
+    if (mat_row < N) {
+      mat[mat_offset] = static_cast<T>(block[block_offset]);
+    }
+  }
+}
+
+static inline void load_vector_block(threadgroup float* vec_i, device float* vec, uint32_t i, uint32_t B, uint lid, uint tptg) {
+  for (uint idx = lid; idx < B; idx += tptg) {
+    vec_i[idx] = vec[i * B + idx];
+  }
+}
+
+static inline void write_vector_block(threadgroup float* vec_i, device float* vec, uint32_t i, uint32_t B, uint lid, uint tptg) {
+  for (uint idx = lid; idx < B; idx += tptg) {
+    vec[i * B + idx] = vec_i[idx];
+  }
+}
+
+
+// Compute `R = scale * A @ B`, where A is shape (M x N), B is shape (N x K),
+// and R is shape (M x K). Matrices are assumed to be contiguous row-major. If
+// `B_transpose` is true, then B is actually shape (K x N), still contiguous
+// row-major, and `R = scale * A @ B^T` is computed.
+//
+// Fast path requires M, N, K all multiples of 8.
+template <bool B_transpose>
+static void matmul_simd2(threadgroup float* R,
+                         threadgroup const float* A,
+                         threadgroup const float* B,
+                         uint32_t M, uint32_t N, uint32_t K,
+                         uint simd_lane_id,
+                         uint simd_group_id,
+                         uint simd_groups,
+                         float scale = 1.0f) {
+  const uint32_t M_tiles = M / 8;
+  const uint32_t K_tiles = K / 8;
+  const uint32_t N_tiles = N / 8;
+  const uint32_t total_tiles = M_tiles * K_tiles;
+
+  // Each SIMD group owns one 8x8 output tile, sweeping N in steps of 8.
+  for (uint32_t tile_idx = simd_group_id;
+       tile_idx < total_tiles;
+       tile_idx += simd_groups) {
+    const uint32_t tile_row = tile_idx / K_tiles;  // along M
+    const uint32_t tile_col = tile_idx % K_tiles;  // along K
+
+    // Register-resident accumulator. make_filled_simdgroup_matrix zeros it.
+    simdgroup_float8x8 acc = make_filled_simdgroup_matrix<float, 8>(0.0f);
+
+    // Walk the K (inner) dimension in 8-wide chunks.
+    for (uint32_t n_tile = 0; n_tile < N_tiles; ++n_tile) {
+      simdgroup_float8x8 a_frag, b_frag;
+
+      // A tile at (tile_row, n_tile): top-left at A[tile_row*8, n_tile*8].
+      // A is row-major with stride N.
+      simdgroup_load(a_frag,
+                     A,
+                     /* stride */ N,
+                     /* origin */ ulong2(n_tile * 8, tile_row * 8),
+                     /* transpose */ false);
+
+      // B tile at (n_tile, tile_col).
+      // If !B_transpose: B is (N x K) row-major, stride K, top-left at
+      //   B[n_tile*8, tile_col*8]. No transpose on load.
+      // If  B_transpose: B is (K x N) row-major, stride N, top-left at
+      //   B[tile_col*8, n_tile*8]. Load with transpose=true so the fragment
+      //   represents the (n_tile, tile_col) tile of B^T.
+      if (B_transpose) {
+        simdgroup_load(b_frag,
+                       B,
+                       /* stride */ N,
+                       /* origin */ ulong2(n_tile * 8, tile_col * 8),
+                       /* transpose */ true);
+      } else {
+        simdgroup_load(b_frag,
+                       B,
+                       /* stride */ K,
+                       /* origin */ ulong2(tile_col * 8, n_tile * 8),
+                       /* transpose */ false);
+      }
+
+      // acc += a_frag @ b_frag, in hardware.
+      simdgroup_multiply_accumulate(acc, a_frag, b_frag, acc);
+    }
+
+    // Fold scale into the accumulator before storing. Each lane scales the
+    // two elements it owns; no barrier or coordination needed.
+    if (scale != 1.0f) {
+      acc.thread_elements() *= scale;
+    }
+
+    // Store the tile to R (M x K, stride K), top-left at (tile_row*8, tile_col*8).
+    simdgroup_store(acc,
+                    R,
+                    /* stride */ K,
+                    /* origin */ ulong2(tile_col * 8, tile_row * 8),
+                    /* transpose */ false);
+  }
+}
+
+// Compute `R = scale * A @ B`, where A is shape (M x N), B is shape (N x K),
+// and R is shape (M x K). Matrices are assumed to be contiguous row-major. If
+// `B_transpose` is true, then B is actually shape (K x N), still contiguous
+// row-major, and `R = scale * A @ B^T` is computed.
+static void matmul(threadgroup float* R, threadgroup float* A, threadgroup float* B, uint32_t M, uint32_t N, uint32_t K, bool B_transpose, bool accumulate, uint lid, uint tptg, float scale=1) {
+  // Divide the output elements up between each thread.
+  for (uint32_t R_idx = lid; R_idx < (M * K); R_idx += tptg) {
+    uint32_t RB_col = R_idx % K;
+    uint32_t RA_row = R_idx / K;
+
+    float dot_prod = 0;
+
+    // Compute dot product of `dot(A[RA_row, :], B[:, RB_col]`
+    for (uint32_t dot_idx = 0; dot_idx < N; dot_idx++) {
+      float a = A[RA_row * N + dot_idx];
+      float b = B[B_transpose ? (RB_col * N + dot_idx) : (dot_idx * K + RB_col)];
+      dot_prod += a * b;
+    }
+
+    auto res = scale * dot_prod;
+    auto R_offset = RA_row * K + RB_col;
+
+    if (accumulate) {
+      R[R_offset] += res;
+
+    } else {
+      R[R_offset] = res;
+    }
+  }
+}
+
+// Compute `R = scale * A @ B` (or `R += ...` if accumulate), where A is
+// logically (M x N), B is (N x K), R is (M x K). All buffers must be
+// allocated with dimensions rounded up to multiples of 8:
+//   M_pad = ceil(M/8)*8, N_pad = ceil(N/8)*8, K_pad = ceil(K/8)*8
+// with the slack rows/cols of A and B zero-filled (R's slack is don't-care
+// going in; on output its slack region is set to 0 if !accumulate, or left
+// equal to its prior value if accumulate).
+//
+// Row strides are the *padded* dims: A stride N_pad, B stride K_pad
+// (or N_pad when B_transpose), R stride K_pad. If B_transpose, B is stored
+// as (K_pad x N_pad) row-major.
+template <bool B_transpose, bool accumulate>
+static void matmul_simd(threadgroup float* R, threadgroup float* A, threadgroup float* B,
+                   uint32_t M, uint32_t N, uint32_t K,
+                   uint simd_lid, uint sg_id, uint nsg,
+                   float scale = 1) {
+  uint32_t M_pad = (M + 7) & ~7u;
+  uint32_t N_pad = (N + 7) & ~7u;
+  uint32_t K_pad = (K + 7) & ~7u;
+
+  uint32_t M_tiles = M_pad / 8;
+  uint32_t K_tiles = K_pad / 8;
+  uint32_t N_tiles = N_pad / 8;
+  uint32_t total_tiles = M_tiles * K_tiles;
+
+  for (uint32_t tile_idx = sg_id; tile_idx < total_tiles; tile_idx += nsg) {
+    uint32_t r_off = (tile_idx / K_tiles) * 8;
+    uint32_t c_off = (tile_idx % K_tiles) * 8;
+    threadgroup float* R_tile = R + r_off * K_pad + c_off;
+    simdgroup_float8x8 acc = simdgroup_float8x8(0);
+
+    for (uint32_t k_tile = 0; k_tile < N_tiles; k_tile++) {
+      uint32_t k_off = k_tile * 8;
+      simdgroup_float8x8 a_mat, b_mat;
+      simdgroup_load(a_mat, A + r_off * N_pad + k_off, N_pad);
+      if (B_transpose) {
+        simdgroup_load(b_mat, B + c_off * N_pad + k_off, N_pad, ulong2(0, 0), true);
+      } else {
+        simdgroup_load(b_mat, B + k_off * K_pad + c_off, K_pad);
+      }
+      simdgroup_multiply_accumulate(acc, a_mat, b_mat, acc);
+    }
+
+    if (scale != 1.0f) {
+      acc.thread_elements() *= scale;
+    }
+
+    if (accumulate) {
+      simdgroup_float8x8 r_old;
+      simdgroup_load(r_old, R_tile, K_pad);
+      acc.thread_elements() += r_old.thread_elements();
+    }
+
+    simdgroup_store(acc, R_tile, K_pad);
+  }
+}
+
+// This kernel implements the forward pass of the FlashAttention-2 algorithm
+// (https://arxiv.org/abs/2307.08691). Each of the output matrices, size N x d,
+// is broken up into blocks of size B_r x d, and each threadgroup is responsible
+// for calculating one block of one output matrix.
+template <typename T, typename T_MASK, bool is_causal>
+kernel void sdpa_flash(
+    device T* out [[buffer(0)]],
+    device float* logsumexp [[buffer(1)]],
+    constant T* Q [[buffer(2)]],
+    constant T* K [[buffer(3)]],
+    constant T* V [[buffer(4)]],
+    constant T_MASK* mask [[buffer(5)]],
+    constant SDPAParams<>& params [[buffer(6)]],
+    uint2 lid [[thread_position_in_threadgroup]],
+    uint2 tgid [[threadgroup_position_in_grid]],
+    uint2 tptg [[threads_per_threadgroup]],
+    uint simd_lane_id [[thread_index_in_simdgroup]],
+    uint simd_group_id [[simdgroup_index_in_threadgroup]],
+    uint simd_groups [[simdgroups_per_threadgroup]]
+) {
+  auto B_r = params.B_r;
+  auto B_c = params.B_c;
+  auto N = params.N;
+  auto d = params.d;
+
+  // Find the batch and head offsets of each of the inputs and outputs
+  const uint32_t head_idx = tgid.x % params.num_heads;
+  const uint32_t batch_idx = tgid.x / params.num_heads;
+  out += params.out_strides[0] * batch_idx + params.out_strides[1] * head_idx;
+  logsumexp += params.logsumexp_strides[0] * batch_idx + params.logsumexp_strides[1] * head_idx;
+  Q += params.q_strides[0] * batch_idx + params.q_strides[1] * head_idx;
+  K += params.k_strides[0] * batch_idx + params.k_strides[1] * head_idx;
+  V += params.v_strides[0] * batch_idx + params.v_strides[1] * head_idx;
+
+  auto KV_j_size = B_c * d;
+  auto Q_i_size = B_r * d;
+  auto O_i_size = B_r * d;
+  auto S_ij_size = B_r * B_c;
+  auto l_i_size = B_r;
+  auto m_i_size = B_r;
+
+  threadgroup float smem[THREADGROUP_MEMORY_FLOATS];
+  threadgroup float* KV_j = smem;
+  threadgroup float* Q_i = KV_j + KV_j_size;
+  threadgroup float* O_i = Q_i + Q_i_size;
+  threadgroup float* S_ij = O_i + O_i_size;
+  threadgroup float* l_i = S_ij + S_ij_size;
+  threadgroup float* m_i = l_i + l_i_size;
+  threadgroup float* m_i_prev = m_i + m_i_size;
+
+  uint32_t i = tgid.y;
+  uint32_t T_c = (N + B_c - 1) / B_c;
+
+  load_matrix_block(Q_i, Q, params.q_strides[2], params.q_strides[3], N, B_r, i, d, lid.x, tptg.x);
+
+  for (uint32_t j = 0; j < T_c; j++) {
+    load_matrix_block(KV_j, K, params.k_strides[2], params.k_strides[3], N, B_c, j, d, lid.x, tptg.x);
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    //matmul(S_ij, Q_i, KV_j, B_r, d, B_c, true, false, lid.x, tptg.x, params.scale);
+    matmul_simd</*B_transpose=*/true, /*accumulate=*/false>(
+      S_ij, Q_i, KV_j, B_r, d, B_c,
+      simd_lane_id, simd_group_id, simd_groups,
+      params.scale);
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    load_matrix_block(KV_j, V, params.v_strides[2], params.v_strides[3], N, B_c, j, d, lid.x, tptg.x);
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    //matmul(O_i, S_ij, KV_j, B_r, B_c, d, false, true, lid.x, tptg.x, 1);
+    matmul_simd</*B_transpose=*/false, /*accumulate=*/true>(
+      O_i, S_ij, KV_j,
+      B_r, B_c, d,
+      simd_lane_id, simd_group_id, simd_groups,
+      /*scale=*/1);
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+  }
+
+  write_matrix_block(O_i, out, params.out_strides[2], params.out_strides[3], N, B_r, i, d, lid.x, tptg.x);
+  write_vector_block(l_i, logsumexp, i, B_r, lid.x, tptg.x);
+}
+
 #define INSTANTIATE_SDPA_VECTOR(DTYPE, QK_DIM, VALUE_DIM)           \
   template [[host_name("sdpa_vector_" #DTYPE "_" #QK_DIM            \
                        "_" #VALUE_DIM)]] kernel void                \
@@ -446,3 +743,33 @@ template <typename T, int D>
 INSTANTIATE_SDPA_VECTOR_HEADS(float);
 INSTANTIATE_SDPA_VECTOR_HEADS(half);
 INSTANTIATE_SDPA_VECTOR_HEADS(bfloat);
+
+#define CAUSAL_SUFFIX_true "_causal"
+#define CAUSAL_SUFFIX_false ""
+
+#define REGISTER_SDPA_FLASH(T, T_MASK, IS_CAUSAL)                               \
+  template[[host_name("sdpa_flash_" #T "_" #T_MASK CAUSAL_SUFFIX_##IS_CAUSAL)]] \
+  kernel void sdpa_flash<T, T_MASK, IS_CAUSAL>(                                 \
+      device T * out [[buffer(0)]],                                             \
+      device float * logsumexp [[buffer(1)]],                                   \
+      constant T * Q [[buffer(2)]],                                             \
+      constant T * K [[buffer(3)]],                                             \
+      constant T * V [[buffer(4)]],                                             \
+      constant T_MASK * mask [[buffer(5)]],                                     \
+      constant SDPAParams<> & params [[buffer(6)]],                             \
+      uint2 lid [[thread_position_in_threadgroup]],                             \
+      uint2 tgid [[threadgroup_position_in_grid]],                              \
+      uint2 tptg [[threads_per_threadgroup]],                                   \
+      uint simd_lane_id [[thread_index_in_simdgroup]],                          \
+      uint simd_group_id [[simdgroup_index_in_threadgroup]],                    \
+      uint simd_groups [[simdgroups_per_threadgroup]]);
+
+#define REGISTER_SDPA_FLASH_MASK_TYPES(T) \
+  REGISTER_SDPA_FLASH(T, void, false);    \
+  REGISTER_SDPA_FLASH(T, void, true);     \
+  REGISTER_SDPA_FLASH(T, bool, false);    \
+  REGISTER_SDPA_FLASH(T, T, false);
+
+REGISTER_SDPA_FLASH_MASK_TYPES(float);
+REGISTER_SDPA_FLASH_MASK_TYPES(half);
+REGISTER_SDPA_FLASH_MASK_TYPES(bfloat);
