@@ -13,3 +13,18 @@ struct GroupNormParams {
   uint32_t elements_per_group;
   float eps;
 };
+
+struct GroupNormBackwardXParams {
+  uint32_t HxW;
+  uint32_t num_groups;
+  uint32_t channels_per_group;
+  uint32_t elements_per_group;
+};
+
+struct GroupNormBackwardAffineParams {
+  uint32_t HxW;
+  uint32_t num_groups;
+  uint32_t channels_per_group;
+  uint32_t C;
+  uint32_t N_times_HxW;
+};
