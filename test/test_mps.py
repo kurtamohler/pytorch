@@ -909,6 +909,144 @@ class TestMPS(TestCaseMPS):
         kl_div = F.kl_div(q.log(), p, reduction='sum').item()
         self.assertLess(kl_div, 0.03)
 
+    def test_stream(self):
+        self.assertEqual(torch.mps.current_stream(), torch.mps.default_stream())
+
+        with torch.mps.stream(None):
+            self.assertEqual(torch.mps.current_stream(), torch.mps.default_stream())
+
+        s1 = torch.mps.Stream()
+        s2 = torch.mps.Stream()
+        self.assertNotEqual(s1, torch.mps.default_stream())
+        self.assertNotEqual(s2, torch.mps.default_stream())
+        self.assertNotEqual(s1, s2)
+
+        # Check that the stream is reset correctly if an exception is raised
+        # within another stream's context.
+        # Note: Use a custom exception type so that any unexpected errors inside
+        # the `try` block pass through to fail the test
+        class MyException(Exception):
+            pass
+
+        try:
+            with torch.mps.stream(s1):
+                self.assertEqual(torch.mps.current_stream(), s1)
+                raise MyException
+
+        except MyException:
+            self.assertEqual(torch.mps.current_stream(), torch.mps.default_stream())
+
+        # Check that the stream is reset correctly with nested contexts
+        with torch.mps.stream(s1):
+            self.assertEqual(torch.mps.current_stream(), s1)
+            with torch.mps.stream(s2):
+                self.assertEqual(torch.mps.current_stream(), s2)
+
+            self.assertEqual(torch.mps.current_stream(), s1)
+
+        self.assertEqual(torch.mps.current_stream(), torch.mps.default_stream())
+
+        def concurrent_sine_loop(a1, a2, s1=None, s2=None, n=100):
+            r1 = a1
+            r2 = a2
+
+            for _ in range(n):
+                with torch.mps.stream(s1):
+                    r1 = torch.sin(r1)
+                with torch.mps.stream(s2):
+                    r2 = torch.sin(r2)
+
+            return r1, r2
+
+        # Check that two separate workloads run on separate streams gives the
+        # same result as running them on one stream.
+        try:
+            a1 = torch.randn(100, device='mps')
+            a2 = torch.randn(100, device='mps')
+            torch.mps.synchronize()
+
+            r1, r2 = concurrent_sine_loop(a1, a2, s1, s2)
+            s1.synchronize()
+            s2.synchronize()
+
+            r1_check, r2_check = concurrent_sine_loop(a1, a2, s1=None, s2=None)
+            torch.mps.synchronize()
+
+            self.assertEqual(r1, r1_check)
+            self.assertEqual(r2, r2_check)
+
+        finally:
+            torch.mps.synchronize()
+            s1.synchronize()
+            s2.synchronize()
+            torch.mps.empty_cache()
+
+        self.assertEqual(torch.mps.current_stream(), torch.mps.default_stream())
+
+    def _get_stream_by_name(self, stream):
+        if stream == "default":
+            return torch.mps.default_stream()
+        elif stream == "pool":
+            return torch.mps.Stream()
+        else:
+            raise NotImplementedError(f"stream '{stream}' not recognized")
+
+    # Tests that MPSAllocatorImpl::recordEvents records the right stream
+    @parametrize("stream", ["default", "pool"])
+    def test_stream_pinned_cpu_to_mps(self, stream):
+        s = self._get_stream_by_name(stream)
+        mismatches = 0
+        for i in range(2000):
+            a_cpu = torch.full((1_000_000,), float(i), pin_memory=True)
+            with torch.mps.stream(s):
+                a_mps = a_cpu.to("mps", non_blocking=True)
+            del a_cpu  # pinned buffer freed while the blit on `s` may still be in flight
+            if not torch.equal(a_mps.cpu(), torch.full((1_000_000,), float(i))):
+                mismatches += 1
+        self.assertEqual(mismatches, 0)
+
+    # Tests that scalar buffer free waits on the correct stream
+    @parametrize("stream", ["default", "pool"])
+    def test_stream_scalar_buffer(self, stream):
+        s = self._get_stream_by_name(stream)
+        a = torch.zeros(1_000_000, device="mps")
+        b = torch.ones(1_000_000, device="mps")
+        bad = 0
+        for i in range(10):
+            with torch.mps.stream(s):
+                out = torch.add(a, b, alpha=2.0)  # alpha=2.0 forces an MPSScalar buffer
+            if not torch.equal(out.cpu(), torch.full((1_000_000,), 2.0)):
+                bad += 1
+        self.assertEqual(bad, 0)
+
+    # Tests that `torch.mps.empty_cache` empties unused buffers on any stream
+    @parametrize("stream", ["default", "pool"])
+    @serialTest()
+    def test_stream_empty_cache(self, stream):
+        s = self._get_stream_by_name(stream)
+
+        def gen_tensor(s):
+            with torch.mps.stream(s):
+                # big enough that the fill takes real GPU time
+                return torch.randn(20_000_000, device="mps")
+
+        # Warmup
+        gen_tensor(s)
+
+        torch.mps.synchronize()
+        gc.collect()
+        torch.mps.empty_cache()
+        before = torch.mps.driver_allocated_memory()
+
+        for i in range(10):
+            t = gen_tensor(s)
+            del t  # buffer becomes "available" in s's per-stream bucket
+
+        gc.collect()
+        torch.mps.empty_cache()  # syncs only the default stream, then frees ALL cached buffers/heaps
+        after = torch.mps.driver_allocated_memory()
+        self.assertEqual(after, before)
+
     def test_stream_base(self):
         s1 = torch._C._MPSStreamBase()
         s2 = torch._C._MPSStreamBase()
