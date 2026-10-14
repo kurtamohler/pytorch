@@ -85,6 +85,13 @@ struct EighParams {
   bool upper; // UPLO: true read upper triangle, false read lower
 };
 
+// Parameters shared by the linalg.eig kernels.
+struct EigParams {
+  int64_t n;
+  bool compute_schur_vectors; // eig_schur also updates U
+  bool stage_h; // eig_schur keeps H in threadgroup memory
+};
+
 // Per-thread small-matrix inverse kernel: up to this size one thread inverts a
 // whole matrix from registers. LinearAlgebra.metal instantiates exact sizes
 // 1..4 and static_asserts the list against this constant. Strides are in

@@ -38,6 +38,7 @@
 #include <ATen/ops/eye.h>
 #include <ATen/ops/eye_native.h>
 #include <ATen/ops/linalg_cholesky_ex_native.h>
+#include <ATen/ops/linalg_householder_product.h>
 #include <ATen/ops/linalg_inv_ex_native.h>
 #include <ATen/ops/linalg_lstsq_native.h>
 #include <ATen/ops/linalg_lu_factor_ex_native.h>
@@ -2478,6 +2479,125 @@ static void eigh_kernel_mps(const Tensor& eigenvalues,
   }
 }
 
+// Encodes one of the linalg.eig kernels, which run one threadgroup per matrix.
+// Must be called on the stream's queue.
+template <typename... Args>
+static void encode_eig_kernel(MPSStream* stream,
+                              const std::string& name,
+                              const Tensor& profiled,
+                              int64_t batch,
+                              int64_t n,
+                              int64_t threadgroup_memory,
+                              const Args&... args) {
+  auto encoder = stream->commandEncoder();
+  auto pso = lib.getPipelineStateForFunc(name);
+  getMPSProfiler().beginProfileKernel(pso, name, {profiled}, stream);
+  [encoder setComputePipelineState:pso];
+  mtl_setArgs(encoder, args...);
+  if (threadgroup_memory > 0) {
+    [encoder setThreadgroupMemoryLength:threadgroup_memory atIndex:0];
+  }
+  const NSUInteger max_threads = pso.maxTotalThreadsPerThreadgroup / simd_size * simd_size;
+  const NSUInteger threads = std::min<NSUInteger>(max_threads, ceil_div(n, simd_size) * simd_size);
+  [encoder dispatchThreadgroups:MTLSizeMake(batch, 1, 1) threadsPerThreadgroup:MTLSizeMake(threads, 1, 1)];
+  getMPSProfiler().endProfileKernel(pso, stream);
+}
+
+// linalg.eig for complex64 matrices; linalg_eig_out_info promotes real ones to
+// complex. With the kernels in LinearAlgebra.metal, which describe the
+// algorithms and the papers they follow:
+//   1. eig_balance balances A to D^-1 A D
+//   2. eig_hessenberg reduces that to Hessenberg form H = P^H D^-1 A D P
+//   3. eig_schur reduces H to Schur form T = Q^H H Q, so D^-1 A D = U T U^H
+//      with U = P Q, and the eigenvalues of A are diag(T)
+//   4. eig_vectors computes the eigenvectors X of T
+// The eigenvectors of A are then the columns of D U X, normalized.
+static void linalg_eig_kernel_mps(Tensor& eigenvalues,
+                                  Tensor& eigenvectors,
+                                  Tensor& infos,
+                                  const Tensor& input,
+                                  bool compute_eigenvectors) {
+  using namespace mps;
+  TORCH_CHECK(input.scalar_type() == kComplexFloat,
+              "linalg.eig: the MPS backend supports only float32 and complex64 inputs. Got ",
+              input.scalar_type());
+  if (input.numel() == 0) {
+    return;
+  }
+  const int64_t n = input.size(-1);
+  const int64_t batch = batchCount(input);
+  const auto options = input.options();
+
+  const int64_t h_bytes = n * n * static_cast<int64_t>(sizeof(c10::complex<float>));
+  const int64_t threadgroup_limit =
+      static_cast<int64_t>([MPSDevice::getInstance()->device() maxThreadgroupMemoryLength]);
+  // eig_schur keeps H in threadgroup memory if it fits next to the kernel's
+  // own threadgroup variables
+  constexpr int64_t kReservedThreadgroupBytes = 1024;
+  const bool stage_h = h_bytes + kReservedThreadgroupBytes <= threadgroup_limit;
+  const EigParams params{n, compute_eigenvectors, stage_h};
+
+  // Working copy of A, which becomes H and then T
+  Tensor H = cloneBatchedColumnMajor(input.resolve_conj().resolve_neg()).reshape({batch, n, n});
+  Tensor D = at::empty({batch, n}, options.dtype(kFloat));
+  Tensor tau = at::empty({batch, std::max<int64_t>(n - 2, 0)}, options);
+  MPSStream* stream = getCurrentMPSStream();
+  dispatch_sync_with_rethrow(stream->queue(), ^() {
+    @autoreleasepool {
+      encode_eig_kernel(stream, "eig_balance", H, batch, n, 0, H, D, params);
+      if (n > 2) {
+        encode_eig_kernel(stream, "eig_hessenberg", H, batch, n, 0, H, tau, params);
+      }
+    }
+  });
+
+  Tensor U;
+  if (compute_eigenvectors) {
+    // P = diag(1, Q), where Q is the product of the reflectors that
+    // eig_hessenberg stored below the subdiagonal of H. U starts as P and
+    // eig_schur multiplies it by Q.
+    U = at::zeros({batch, n, n}, options).mT();
+    U.select(-1, 0).select(-1, 0).fill_(1);
+    if (n > 1) {
+      auto reflectors = H.narrow(-2, 1, n - 1).narrow(-1, 0, n - 1);
+      U.narrow(-2, 1, n - 1).narrow(-1, 1, n - 1).copy_(at::linalg_householder_product(reflectors, tau));
+    }
+  }
+  H.triu_(-1);
+
+  Tensor rotations = at::empty({batch, n, 4}, options.dtype(kFloat));
+  Tensor U_arg = compute_eigenvectors ? U : at::empty({1}, options);
+  const int64_t schur_threadgroup_memory = stage_h ? ceil_div<int64_t>(h_bytes, 16) * 16 : 16;
+  dispatch_sync_with_rethrow(stream->queue(), ^() {
+    @autoreleasepool {
+      encode_eig_kernel(
+          stream, "eig_schur", H, batch, n, schur_threadgroup_memory, H, U_arg, rotations, eigenvalues, infos, params);
+    }
+  });
+  if (!compute_eigenvectors) {
+    return;
+  }
+
+  Tensor X = at::empty({batch, n, n}, options).mT();
+  Tensor bounds = at::empty({batch, 2 * n}, options.dtype(kFloat));
+  dispatch_sync_with_rethrow(stream->queue(), ^() {
+    @autoreleasepool {
+      encode_eig_kernel(stream, "eig_vectors", H, batch, n, 0, H, X, bounds, params);
+    }
+  });
+
+  // Like LAPACK's xGEEV, normalize the eigenvectors to unit norm with their
+  // largest component real. Dividing by the largest component first, as
+  // conj(largest) / |largest|^2 without squaring |largest|, keeps the norm
+  // computation from overflowing however D scales the columns.
+  Tensor V = at::matmul(U, X).mul_(D.unsqueeze(-1));
+  Tensor largest = V.gather(-2, V.abs().argmax(-2, /*keepdim=*/true));
+  Tensor largest_abs = largest.abs();
+  V.mul_(largest.conj().div(largest_abs).div_(largest_abs));
+  V.div_(at::linalg_vector_norm(V, 2, {-2}, /*keepdim=*/true));
+  eigenvectors.copy_(V.view(eigenvectors.sizes()));
+}
+
 static Tensor& cholesky_inverse_kernel_impl_mps(Tensor& result, Tensor& infos, bool upper) {
   using namespace mps;
   TORCH_CHECK(result.is_mps(), "Output tensor is not MPS");
@@ -2915,6 +3035,7 @@ REGISTER_DISPATCH(orgqr_stub, mps::orgqr_stub_impl);
 REGISTER_DISPATCH(cholesky_inverse_stub, mps::cholesky_inverse_kernel_impl_mps);
 REGISTER_DISPATCH(svd_stub, mps::svd_kernel_mps);
 REGISTER_DISPATCH(linalg_eigh_stub, mps::eigh_kernel_mps);
+REGISTER_DISPATCH(linalg_eig_stub, mps::linalg_eig_kernel_mps);
 REGISTER_DISPATCH(lstsq_stub, mps::lstsq_kernel_mps);
 REGISTER_DISPATCH(geqrf_stub, mps::geqrf_kernel_mps)
 
